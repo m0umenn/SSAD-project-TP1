@@ -1,0 +1,1 @@
+"""Integrity-related stubs for SSAD Toolkit."""
