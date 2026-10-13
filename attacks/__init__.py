@@ -1,0 +1,1 @@
+"""Attack stubs for SSAD Toolkit."""

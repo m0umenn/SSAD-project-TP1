@@ -105,3 +105,17 @@ git branch -M main
 git remote add origin https://github.com/m0umenn/SSAD-project-TP1.git
 git push -u origin main
 ```
+
+## Running Tests
+
+Run the unit tests with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Run the benchmark helper with:
+
+```bash
+python benchmarks.py
+```
