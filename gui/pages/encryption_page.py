@@ -284,7 +284,9 @@ class EncryptionPage(BasePage):
             self._set_error_status(str(exc))
 
     def _encrypt_hill_message(self) -> None:
-        key = self._current_hill_key()
+        key = self._parse_hill_key()
+        if key is None:
+            return
         try:
             text = self.sender_message.get("1.0", tk.END).strip()
             ciphertext = hill.encrypt(text, key)
@@ -307,7 +309,9 @@ class EncryptionPage(BasePage):
         self._set_status("Ciphertext sent to Entity B.")
 
     def _decrypt_hill_message(self) -> None:
-        key = self._current_hill_key()
+        key = self._parse_hill_key()
+        if key is None:
+            return
         ciphertext = self.receiver_ciphertext.get().strip()
         pad_value = self.receiver_padding.get().strip()
         try:

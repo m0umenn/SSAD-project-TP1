@@ -70,6 +70,37 @@ class TestHillCipherLogic(unittest.TestCase):
         self.assertEqual(hill.padding_length("HELLO", 5), 0)
         self.assertEqual(hill.padding_length("", 3), 0)
 
+    def test_decrypt_rejects_padding_range_and_type(self) -> None:
+        key = [[3, 2], [5, 7]]
+        ciphertext = hill.encrypt("BONJOUR", key)
+
+        for pad_len in (-1, 2, 5, 99):
+            with self.subTest(pad_len=pad_len):
+                with self.assertRaisesRegex(ValueError, "Padding length must be between 0 and 1."):
+                    hill.decrypt(ciphertext, key, pad_len=pad_len)
+
+        with self.assertRaisesRegex(ValueError, "Padding length must be between 0 and 1."):
+            hill.decrypt(ciphertext, key, pad_len="1")
+
+    def test_empty_message_rejected(self) -> None:
+        key = [[3, 2], [5, 7]]
+        with self.assertRaisesRegex(ValueError, "Message has no letters A-Z."):
+            hill.encrypt("", key)
+        with self.assertRaisesRegex(ValueError, "Message has no letters A-Z."):
+            hill.encrypt("!!!", key)
+
+    def test_box_padding_behavior(self) -> None:
+        key = [[3, 2], [5, 7]]
+        ciphertext = hill.encrypt("BOX", key)
+        self.assertEqual(hill.decrypt(ciphertext, key, pad_len=1), "BOX")
+        self.assertEqual(hill.decrypt(ciphertext, key), "BOXX")
+
+    def test_algorithm_vector_3x3(self) -> None:
+        key = [[6, 24, 1], [13, 16, 10], [20, 17, 15]]
+        ciphertext = hill.encrypt("ALGORITHM", key)
+        self.assertEqual(ciphertext, "KCRGONILD")
+        self.assertEqual(hill.decrypt(ciphertext, key, pad_len=0), "ALGORITHM")
+
     def test_decrypt_without_pad_len_keeps_padding(self) -> None:
         key = [[3, 2], [5, 7]]
         ciphertext = hill.encrypt("BONJOUR", key)

@@ -158,6 +158,9 @@ def encrypt(text: str, key) -> str:
     attacks, and the key matrix must be invertible modulo 26.
     """
     normalized = normalize(text)
+    if not normalized:
+        raise ValueError("Message has no letters A-Z.")
+
     normalized_key = _coerce_key(key)
     if normalized_key is None:
         raise ValueError("Key must be a 2x2 or 3x3 square matrix of integers.")
@@ -215,10 +218,8 @@ def decrypt(text: str, key, pad_len: int | None = None) -> str:
     if pad_len is None:
         return decoded
 
-    if not isinstance(pad_len, int) or isinstance(pad_len, bool):
-        raise ValueError("Padding length must be an integer or None.")
-    if pad_len < 0:
-        raise ValueError("Padding length cannot be negative.")
+    if not isinstance(pad_len, int) or isinstance(pad_len, bool) or pad_len < 0 or pad_len >= block_size:
+        raise ValueError(f"Padding length must be between 0 and {block_size - 1}.")
     if pad_len > len(decoded):
         raise ValueError("Padding length is larger than the decrypted text length.")
 

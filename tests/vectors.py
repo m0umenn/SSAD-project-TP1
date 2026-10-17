@@ -11,4 +11,5 @@ HILL_VECTORS: list[dict[str, object]] = [
         "ciphertext": "RDLUVQBNK",
     },
     {"plaintext": "HELP", "key": [[3, 3], [2, 5]], "ciphertext": "HIAT"},
+    {"plaintext": "ALGORITHM", "key": [[6, 24, 1], [13, 16, 10], [20, 17, 15]], "ciphertext": "KCRGONILD"},
 ]
