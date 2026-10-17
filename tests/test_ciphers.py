@@ -50,7 +50,18 @@ class TestHillCipher(unittest.TestCase):
         for vector in HILL_VECTORS:
             with self.subTest(vector=vector):
                 try:
-                    self.assertEqual(hill.encrypt(vector["plaintext"], vector["key"]), vector["ciphertext"])
-                    self.assertEqual(hill.decrypt(vector["ciphertext"], vector["key"]), vector["plaintext"])
+                    plain_text = vector["plaintext"]
+                    key = vector["key"]
+                    n = len(key)
+                    ciphertext = hill.encrypt(plain_text, key)
+                    self.assertEqual(ciphertext, vector["ciphertext"])
+                    self.assertEqual(
+                        hill.decrypt(
+                            ciphertext,
+                            key,
+                            pad_len=hill.padding_length(hill.normalize(plain_text), n),
+                        ),
+                        hill.normalize(plain_text),
+                    )
                 except NotImplementedError:
                     self.skipTest("not implemented yet")

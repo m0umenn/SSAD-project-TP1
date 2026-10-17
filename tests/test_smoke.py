@@ -1,3 +1,4 @@
+
 """Smoke tests for SSAD Toolkit."""
 
 from __future__ import annotations
@@ -29,15 +30,16 @@ class TestStubFunctions(unittest.TestCase):
             (playfair.encrypt, ("HELLO", "KEY")),
             (playfair.decrypt, ("KEY", "KEY")),
             (playfair.validate_key, ("KEY",)),
-            (hill.encrypt, ("HELLO", [[1, 0], [0, 1]])),
-            (hill.decrypt, ("HELLO", [[1, 0], [0, 1]])),
-            (hill.validate_key, ([[1, 0], [0, 1]],)),
         ]
 
         for func, args in stub_calls:
             with self.subTest(func=func.__name__):
                 with self.assertRaises(NotImplementedError):
                     func(*args)
+
+        self.assertTrue(hill.validate_key([[1, 0], [0, 1]]))
+        self.assertEqual(hill.encrypt("HELLO", [[1, 0], [0, 1]]), "HELLOX")
+        self.assertEqual(hill.decrypt("HELLOX", [[1, 0], [0, 1]], pad_len=1), "HELLO")
 
     def test_password_and_integrity_stubs(self) -> None:
         from integrity import integrity

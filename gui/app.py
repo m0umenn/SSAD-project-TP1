@@ -27,17 +27,17 @@ class SSADToolkitApp(tk.Tk):
 
         self.title("SSAD Toolkit")
         self.geometry("1000x650")
-        self.minsize(900, 580)
+        self.resizable(True, True)
 
         self._setup_style()
 
         self.columnconfigure(1, weight=1)
         self.rowconfigure(0, weight=1)
 
-        self.sidebar = ttk.Frame(self, style="Sidebar.TFrame", padding=(16, 18))
+        self.sidebar = ttk.Frame(self, style="Sidebar.TFrame", padding=(12, 14))
         self.sidebar.grid(row=0, column=0, sticky="ns")
 
-        self.content = ttk.Frame(self, style="Content.TFrame", padding=18)
+        self.content = ttk.Frame(self, style="Content.TFrame", padding=(10, 6))
         self.content.grid(row=0, column=1, sticky="nsew")
         self.content.columnconfigure(0, weight=1)
         self.content.rowconfigure(0, weight=1)
@@ -48,7 +48,7 @@ class SSADToolkitApp(tk.Tk):
 
         self._build_sidebar()
         self._build_pages()
-
+        self._size_window_to_content()
         self.show_page(PAGE_DEFINITIONS[0][0])
 
     def _setup_style(self) -> None:
@@ -98,14 +98,34 @@ class SSADToolkitApp(tk.Tk):
             "PageTitle.TLabel",
             background="#f4f6f8",
             foreground="#1f2933",
-            font=("Segoe UI", 20, "bold"),
+            font=("Segoe UI", 17, "bold"),
         )
         style.configure(
             "PageBody.TLabel",
             background="#f4f6f8",
             foreground="#52616f",
-            font=("Segoe UI", 11),
+            font=("Segoe UI", 10),
         )
+
+    def _size_window_to_content(self) -> None:
+        self.update_idletasks()
+        page_widths = [page.winfo_reqwidth() for page in self._pages.values()]
+        page_heights = [page.winfo_reqheight() for page in self._pages.values()]
+        required_width = max(page_widths) + self.sidebar.winfo_reqwidth() + 28
+        required_height = max(page_heights) + 24
+
+        max_width = max(0, self.winfo_screenwidth() - 40)
+        max_height = max(0, self.winfo_screenheight() - 80)
+
+        required_width = min(max(1000, required_width), max_width)
+        required_height = min(max(650, required_height), max_height)
+
+        self.geometry(f"{required_width}x{required_height}")
+        self.minsize(required_width, required_height)
+
+        x_pos = max((self.winfo_screenwidth() - required_width) // 2, 0)
+        y_pos = max((self.winfo_screenheight() - required_height) // 2, 0)
+        self.geometry(f"{required_width}x{required_height}+{x_pos}+{y_pos}")
 
     def _build_sidebar(self) -> None:
         title = ttk.Label(

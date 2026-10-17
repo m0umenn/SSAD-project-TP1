@@ -1,19 +1,47 @@
 # SSAD Toolkit Project Update
 
-This document explains the current skeleton of the SSAD Toolkit project, where each part lives, and how the main classes and modules interact.
+This document records the current state of the SSAD Toolkit project, including the implemented features, interface changes, and validation work completed during the Hill cipher task.
+
+## Current status
+
+The project is no longer just a GUI shell. It includes a working Hill cipher implementation, GUI integration for the Hill form, and a compact layout that keeps the full Hill panel visible without scrolling.
+
+## Completed work
+
+### Hill cipher implementation
+
+- Implemented the Hill cipher in `crypto/hill.py` with modular arithmetic and key validation.
+- Added support for:
+  - key normalization and validation
+  - determinant and inverse-matrix handling
+  - padding-length logic for plaintext blocks
+  - encryption and decryption flows
+  - round-trip behavior consistent with classical Hill cipher rules
+
+### GUI integration
+
+- Connected the Hill cipher to the encryption interface in `gui/pages/encryption_page.py`.
+- Added a matrix-based key editor for 2x2 and 3x3 keys.
+- Included sender/receiver workflow controls for encrypting, sending ciphertext, and decrypting it back.
+- Integrated the Hill panel into the main app with layout adjustments in `gui/app.py` to avoid clipping and scrolling.
+
+### Testing and validation
+
+- Added and updated Hill-related tests in `tests/test_ciphers.py`, `tests/test_hill.py`, and `tests/vectors.py`.
+- Confirmed the suite passes successfully with `python -m unittest discover -s tests -v`.
+- Verified the app launches successfully with `python main.py`.
+
+### Layout refinement
+
+- Removed the scroll-based structure from the Hill section.
+- Kept the full Hill form visible in the default app window without extra scrolling.
+- Preserved the functional logic while only adjusting layout sizing in the interface files.
 
 ## What This Project Is
 
-SSAD Toolkit is a Windows-only Python 3.10+ GUI skeleton for a university practical work about classical encryption, password attacks, and authenticity/integrity tools.
+SSAD Toolkit is a Windows-only Python 3.10+ GUI application for a university practical work covering classical encryption, password attacks, and authenticity/integrity tools.
 
-The project currently contains only the shell of the application:
-
-- a working Tkinter GUI window
-- a left sidebar with page buttons
-- one page class per main section
-- stub algorithm and helper modules with `NotImplementedError`
-
-No real cryptographic algorithm is implemented yet.
+The project now includes a working Tkinter interface, a functional Hill cipher, and a set of validation tests covering the implemented behavior.
 
 ## Current Folder Tree
 
