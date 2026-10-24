@@ -89,7 +89,6 @@ def decrypt(text: str, key) -> str:
     return _shift(text, -_parse_key(key))
 
 
-# ------------------------- Attacks (security flaws) -------------------------
 
 def brute_force(cipher: str) -> list[tuple[int, str]]:
     """Try all 51 meaningful keys. Returns [(key, candidate_plaintext), ...]."""
@@ -124,7 +123,6 @@ def frequency_attack(cipher: str, top: int = 3) -> list[tuple[int, str]]:
 
 
 if __name__ == "__main__":
-    # Test cases from the specification (the_Caesar_algorithm_2.pdf)
     cases = [
         ("Meriem", 4, "Qivmiq"),
         ("Zoe", 3, "crh"),
