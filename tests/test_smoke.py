@@ -23,10 +23,12 @@ class TestStubFunctions(unittest.TestCase):
     def test_crypto_stubs(self) -> None:
         from crypto import caesar, hill, playfair
 
+        self.assertEqual(caesar.encrypt("HELLO", 3), "KHOOR")
+        self.assertEqual(caesar.decrypt("KHOOR", 3), "HELLO")
+        self.assertTrue(caesar.validate_key(3))
+        self.assertFalse(caesar.validate_key(0))
+
         stub_calls = [
-            (caesar.encrypt, ("HELLO", 3)),
-            (caesar.decrypt, ("KHOOR", 3)),
-            (caesar.validate_key, (3,)),
             (playfair.encrypt, ("HELLO", "KEY")),
             (playfair.decrypt, ("KEY", "KEY")),
             (playfair.validate_key, ("KEY",)),

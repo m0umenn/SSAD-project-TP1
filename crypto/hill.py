@@ -1,11 +1,4 @@
-"""Hill cipher implementation.
 
-The Hill cipher is a polygraphic substitution cipher that operates on blocks of
-letters using a matrix over the alphabet modulo 26. The same key must be
-invertible modulo 26 to permit decryption, and the system is vulnerable to
-linear attacks and known-plaintext attacks because the mapping is algebraic and
-deterministic.
-"""
 
 from __future__ import annotations
 

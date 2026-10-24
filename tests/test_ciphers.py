@@ -12,16 +12,23 @@ class TestCaesarCipher(unittest.TestCase):
     """Tests for the Caesar cipher."""
 
     def test_vectors(self) -> None:
-        if not CAESAR_VECTORS:
-            self.skipTest("no Caesar test vectors yet")
+        vectors = [
+            {"plaintext": "Meriem", "key": 4, "ciphertext": "Qivmiq"},
+            {"plaintext": "Zoe", "key": 3, "ciphertext": "crh"},
+            {"plaintext": "xyz", "key": 3, "ciphertext": "ABC"},
+            {"plaintext": "XYZ", "key": 3, "ciphertext": "abc"},
+            {"plaintext": "abc", "key": -3, "ciphertext": "XYZ"},
+            {"plaintext": "Hello World 2026!", "key": 5, "ciphertext": "Mjqqt btwqi 2026!"},
+        ]
 
-        for vector in CAESAR_VECTORS:
+        for vector in vectors:
             with self.subTest(vector=vector):
-                try:
-                    self.assertEqual(caesar.encrypt(vector["plaintext"], vector["key"]), vector["ciphertext"])
-                    self.assertEqual(caesar.decrypt(vector["ciphertext"], vector["key"]), vector["plaintext"])
-                except NotImplementedError:
-                    self.skipTest("not implemented yet")
+                plaintext = vector["plaintext"]
+                key = vector["key"]
+                ciphertext = vector["ciphertext"]
+                self.assertEqual(caesar.encrypt(plaintext, key), ciphertext)
+                self.assertEqual(caesar.decrypt(ciphertext, key), plaintext)
+                self.assertTrue(caesar.validate_key(key))
 
 
 class TestPlayfairCipher(unittest.TestCase):

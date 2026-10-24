@@ -6,7 +6,7 @@ import math
 import tkinter as tk
 from tkinter import ttk
 
-from crypto import hill
+from crypto import caesar, hill
 from gui.pages.base_page import BasePage
 
 
@@ -79,13 +79,99 @@ class EncryptionPage(BasePage):
             self._build_hill_panel()
 
     def _build_caesar_panel(self) -> None:
-        label = ttk.Label(
-            self.algorithm_panel,
-            text="Not implemented yet",
-            foreground="#5f6f7a",
-            font=("Segoe UI", 11, "bold"),
-        )
-        label.grid(row=0, column=0, padx=6, pady=10, sticky="w")
+        main = ttk.Frame(self.algorithm_panel)
+        main.grid(row=0, column=0, sticky="nsew")
+        main.columnconfigure(0, weight=1, uniform="entities")
+        main.columnconfigure(1, weight=0)
+        main.columnconfigure(2, weight=1, uniform="entities")
+
+        sender = ttk.LabelFrame(main, text="Entity A (sender)", padding=(10, 8))
+        sender.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        sender.columnconfigure(0, weight=1)
+
+        separator = ttk.Separator(main, orient="vertical")
+        separator.grid(row=0, column=1, sticky="ns", padx=(0, 6))
+
+        receiver = ttk.LabelFrame(main, text="Entity B (receiver)", padding=(10, 8))
+        receiver.grid(row=0, column=2, sticky="nsew")
+        receiver.columnconfigure(0, weight=1)
+
+        ttk.Label(sender, text="Encryption key:").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.caesar_key_var = tk.StringVar(value="3")
+        ttk.Entry(sender, textvariable=self.caesar_key_var, width=16).grid(row=1, column=0, sticky="ew")
+
+        ttk.Label(sender, text="Message:").grid(row=2, column=0, sticky="w", pady=(10, 4))
+        self.caesar_message = tk.Text(sender, height=4, wrap="word")
+        self.caesar_message.grid(row=3, column=0, sticky="ew")
+
+        action_row = ttk.Frame(sender)
+        action_row.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(action_row, text="Encrypt", command=self._encrypt_caesar_message).pack(side="left")
+        ttk.Button(action_row, text="Send to B", command=self._send_caesar_cipher_to_b).pack(side="left", padx=(10, 0))
+
+        ttk.Label(sender, text="Ciphertext:").grid(row=5, column=0, sticky="w", pady=(10, 4))
+        self.caesar_ciphertext_var = tk.StringVar(value="")
+        ttk.Entry(sender, textvariable=self.caesar_ciphertext_var, state="readonly").grid(row=6, column=0, sticky="ew")
+
+        ttk.Label(receiver, text="Ciphertext:").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.caesar_receiver_ciphertext = ttk.Entry(receiver, width=24)
+        self.caesar_receiver_ciphertext.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+
+        ttk.Label(receiver, text="Key:").grid(row=2, column=0, sticky="w", pady=(0, 6))
+        self.caesar_receiver_key_var = tk.StringVar(value="3")
+        ttk.Entry(receiver, textvariable=self.caesar_receiver_key_var, width=16).grid(row=3, column=0, sticky="ew")
+
+        ttk.Button(receiver, text="Decrypt", command=self._decrypt_caesar_message).grid(row=4, column=0, sticky="w", pady=(8, 8))
+
+        ttk.Label(receiver, text="Result:").grid(row=5, column=0, sticky="w", pady=(0, 4))
+        self.caesar_result_var = tk.StringVar(value="")
+        ttk.Entry(receiver, textvariable=self.caesar_result_var, state="readonly").grid(row=6, column=0, sticky="ew")
+
+    def _encrypt_caesar_message(self) -> None:
+        key_value = self.caesar_key_var.get().strip()
+        try:
+            key = self._parse_caesar_key(key_value)
+        except ValueError as exc:
+            self._set_error_status(str(exc))
+            return
+
+        plaintext = self.caesar_message.get("1.0", tk.END).strip()
+        try:
+            ciphertext = caesar.encrypt(plaintext, key)
+            self.caesar_ciphertext_var.set(ciphertext)
+            self._set_status("Encryption complete.")
+        except ValueError as exc:
+            self._set_error_status(str(exc))
+            self.caesar_ciphertext_var.set("")
+
+    def _send_caesar_cipher_to_b(self) -> None:
+        ciphertext = self.caesar_ciphertext_var.get().strip()
+        self.caesar_receiver_ciphertext.delete(0, tk.END)
+        self.caesar_receiver_ciphertext.insert(0, ciphertext)
+        self.caesar_receiver_key_var.set(self.caesar_key_var.get().strip())
+        self._set_status("Ciphertext sent to Entity B.")
+
+    def _decrypt_caesar_message(self) -> None:
+        ciphertext = self.caesar_receiver_ciphertext.get().strip()
+        key_value = self.caesar_receiver_key_var.get().strip()
+        try:
+            key = self._parse_caesar_key(key_value)
+            plaintext = caesar.decrypt(ciphertext, key)
+            self.caesar_result_var.set(plaintext)
+            self._set_status("Decryption complete.")
+        except ValueError as exc:
+            self._set_error_status(str(exc))
+            self.caesar_result_var.set("")
+
+    def _parse_caesar_key(self, key_value: str):
+        if key_value == "":
+            raise ValueError("A Caesar key is required.")
+        if caesar.validate_key(key_value):
+            return key_value
+        try:
+            return int(key_value)
+        except ValueError as exc:
+            raise ValueError("Key must be an integer or left/right notation like 'L4' or 'R4'.") from exc
 
     def _build_playfair_panel(self) -> None:
         label = ttk.Label(
