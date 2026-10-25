@@ -2,32 +2,33 @@
 
 ## 1. Overview
 
-SSAD Toolkit is a Windows desktop application written in Python 3.10+ using only the standard library, mainly Tkinter and ttk. The project is a teaching-style practical work for classical cryptography and related security topics. It groups together a GUI front end, a few cipher implementations, a stubbed password/attack toolkit, and integrity helpers.
+SSAD Toolkit is a Windows desktop application written in Python 3.10+ using only the standard library, mainly Tkinter and ttk. The project is a teaching-style practical work for classical cryptography and related security topics.
 
-The project is meant to be used locally on Windows by students and demonstrators. The usual starting point is:
+The expected workflow is:
 
 ```bash
 python main.py
 ```
 
-No external packages are required for the current code. The code imports only Python standard-library modules such as `tkinter`, `ttk`, `math`, `time`, and `threading`.
+No external packages are required for the current code. The code imports only standard-library modules such as `tkinter`, `ttk`, `math`, and `time`.
 
 ### Implemented now vs still stubbed
 
 | Area | Status | What the code does today |
 | --- | --- | --- |
-| App shell | Implemented | `main.py` launches `gui.app.run_app()`, and `SSADToolkitApp` builds the window and side navigation. |
-| Encryption page | Implemented for Hill | `EncryptionPage` includes a working Hill panel, with Caesar and Playfair panels still as placeholders. |
+| App shell | Implemented | `main.py` launches `gui.app.run_app()`, and `SSADToolkitApp` builds the window and sidebar. |
+| Encryption page | Implemented | The page includes Caesar, Playfair, and Hill panels with manual key entry and no pre-filled secrets. |
 | Hill cipher logic | Implemented | `crypto/hill.py` provides `normalize`, `validate_key`, `determinant`, `inverse_key`, `padding_length`, `encrypt`, and `decrypt`. |
-| Caesar cipher | Stub | `crypto/caesar.py` raises `NotImplementedError` for all public functions. |
-| Playfair cipher | Stub | `crypto/playfair.py` raises `NotImplementedError` for all public functions. |
-| Password modules | Stub | `passwords/*.py` function stubs exist and intentionally do nothing. |
+| Caesar cipher | Implemented | `crypto/caesar.py` encrypts and decrypts over the 52-letter alphabet, with key validation and frequency attack helpers. |
+| Playfair cipher | Implemented | `crypto/playfair.py` validates manual keywords, builds the 5x5 matrix, and handles encryption/decryption with digraph padding. |
+| Password defence & page | Implemented | `passwords/generators.py`, `passwords/protection.py`, and `gui/pages/passwords_page.py` implement use cases 1 and 2, fast SHA-256 hashing, PBKDF2-HMAC-SHA256 salted storage, constant-time verification, `make_checker`, `Lockout`, and the Passwords GUI page. |
+| Password attack modules | Stub | `passwords/brute_force.py` and `passwords/dictionary.py` remain stubs for the attacker team. |
 | Integrity module | Stub | `integrity/integrity.py` function stubs exist and intentionally do nothing. |
 | Attack helpers | Stub | `attacks/*.py` function stubs exist and intentionally do nothing. |
-| Tests | Implemented | Unit tests cover Hill behavior, smoke imports, and vector checks. |
+| Tests | Implemented | Unit tests cover Caesar, Playfair, Hill, password defence (`tests/test_protection.py`), and import smoke checks. |
 | Benchmark helper | Implemented | `benchmarks.py` times callable functions and skips unavailable ones. |
 
-Note: `README.md` and `PROJECT_UPDATE.md` still describe the project partly as a shell, but the actual code now contains a working Hill implementation and Hill GUI integration.
+> The GUI does not auto-populate keys. All algorithms require the user to type the key manually.
 
 ## 2. Folder tree
 
@@ -72,191 +73,55 @@ SSAD/
 │   ├── __init__.py
 │   ├── test_ciphers.py
 │   ├── test_hill.py
+│   ├── test_protection.py
 │   ├── test_smoke.py
 │   └── vectors.py
 └── docs/
+    ├── EXAMPLE_KEYS.md
+    ├── HOW_IT_WORKS.md
     └── PROJECT_GUIDE.md
 ```
 
 ### Roles of the main files
 
-- `main.py`: application entry point; runs `run_app()`.
+- `main.py`: application entry point; runs the app.
 - `gui/app.py`: main window and sidebar logic; registers pages and switches them.
-- `gui/background.py`: helper to run a function in a background thread and return results with `root.after(...)`.
-- `gui/pages/base_page.py`: shared base frame for all pages.
-- `gui/pages/encryption_page.py`: main UI for algorithm choice and Hill workflow.
-- `gui/pages/passwords_page.py`: placeholder password page.
-- `gui/pages/attacks_page.py`: placeholder attacks page.
-- `gui/pages/integrity_page.py`: placeholder integrity/authenticity page.
-- `crypto/hill.py`: actual Hill cipher implementation.
-- `crypto/caesar.py`: Caesar stub.
-- `crypto/playfair.py`: Playfair stub.
-- `passwords/*.py`: password-related stubs.
-- `integrity/integrity.py`: integrity-related stubs.
-- `attacks/*.py`: attack-related stubs.
+- `gui/pages/encryption_page.py`: UI for Caesar, Playfair, and Hill workflows.
+- `crypto/caesar.py`: Caesar cipher implementation.
+- `crypto/hill.py`: Hill cipher implementation.
+- `crypto/playfair.py`: Playfair implementation with 5x5 matrix generation, key validation, and digraph-based encryption/decryption.
 - `tests/*`: unit tests and known-good vectors.
-- `benchmarks.py`: simple timing helper for implemented ciphers.
-- `README.md`: user-facing project overview and run instructions.
-- `PROJECT_UPDATE.md`: status summary for the current project state.
+- `docs/EXAMPLE_KEYS.md`: verified example values for the real algorithms.
+- `README.md`: project overview and run instructions.
 
-`CONVENTIONS.md` does not exist in this workspace. `UNCERTAIN: No conventions file was found, so the code itself is the source of truth.`
+`CONVENTIONS.md` was not found in this workspace, so the implementation itself remains the source of truth.
 
-## 3. How the application starts
+## 3. Verified cipher examples
 
-The flow starts in `main.py`:
+The ciphers in the code were checked directly against their runtime behavior. The verified examples are:
 
-```python
-from gui.app import run_app
+- Caesar: `Meriem` with key `4` -> `Qivmiq`
+- Caesar: `Hello World 2026!` with key `5` -> `Mjqqt btwqi 2026!`
+- Hill: `HELP` with key `[[3, 3], [2, 5]]` -> `HIAT`
+- Hill: `BONJOUR` with key `[[3, 2], [5, 7]]` -> `FZFYECTM`
+- Hill: `ALGORITHM` with key `[[6, 24, 1], [13, 16, 10], [20, 17, 15]]` -> `KCRGONILD`
+- Playfair: `HELLO` with key `MONARCHY` -> `CFSUPM`
+- Playfair: `MEETME` with key `MONARCHY` -> `CLKLCL`
+- Playfair: `INSTRUMENTS` with key `MONARCHY` -> `GATLMZCLRQXA`
+- Playfair: `INFORMATION` with key `MONARCHY` -> `GAPHMORSFAAW`
+- Playfair: `EXAMPLE` with key `KEYWORD` -> `WURPSHWU`
 
-if __name__ == "__main__":
-    run_app()
+Playfair is implemented in the crypto layer (`crypto/playfair.py`) and verified against standard Playfair rules in the GUI and test suite.
+
+## 4. Running the tests
+
+Run the suite with:
+
+```bash
+python -m unittest discover -s tests -v
 ```
 
-This calls the function `gui.app.run_app()`, which does this:
-
-1. Creates a `SSADToolkitApp` instance.
-2. `SSADToolkitApp.__init__()` calls `super().__init__()` to build a `tk.Tk` window.
-3. It sets the window title and initial geometry to `"1000x650"`.
-4. It calls `_setup_style()` to configure the ttk theme and color styles.
-5. It builds the sidebar via `_build_sidebar()`.
-6. It builds all pages via `_build_pages()`.
-7. It calls `_size_window_to_content()` to compute a final size based on page requirements.
-8. It calls `show_page(PAGE_DEFINITIONS[0][0])` to display the first page.
-9. It enters the Tk event loop with `app.mainloop()`.
-
-This is the exact startup chain:
-
-```text
-main.py
-  -> run_app()
-      -> SSADToolkitApp()
-          -> __init__()
-              -> _setup_style()
-              -> _build_sidebar()
-              -> _build_pages()
-              -> _size_window_to_content()
-              -> show_page("Encryption / Decryption")
-      -> mainloop()
-```
-
-## 4. How the interface is built
-
-### 4.1 `SSADToolkitApp`
-
-`SSADToolkitApp` lives in `gui/app.py` and inherits from `tk.Tk`.
-
-It does the following:
-
-- sets title: `"SSAD Toolkit"`
-- sets initial geometry: `"1000x650"`
-- allows resizing: `self.resizable(True, True)`
-- sets up a custom ttk style with a dark sidebar and light content area
-- creates `self.sidebar` and `self.content`
-- stores all pages in `self._pages`
-- stores all buttons in `self._buttons`
-- calls `show_page()` when a sidebar button is clicked
-
-The important definitions are:
-
-```python
-PAGE_DEFINITIONS = [
-    ("Encryption / Decryption", EncryptionPage),
-    ("Passwords", PasswordsPage),
-    ("Attacks", AttacksPage),
-    ("Authenticity / Integrity", IntegrityPage),
-]
-```
-
-This is the central page registry. Each tuple is `("label", PageClass)`.
-
-The sidebar is built in `_build_sidebar()`. Each button is created with:
-
-```python
-button = ttk.Button(
-    self.sidebar,
-    text=page_name,
-    style="Sidebar.TButton",
-    command=lambda name=page_name: self.show_page(name),
-)
-```
-
-The actual page objects are created in `_build_pages()`:
-
-```python
-for page_name, page_class in PAGE_DEFINITIONS:
-    page = page_class(self.content)
-    page.grid(row=0, column=0, sticky="nsew")
-    self._pages[page_name] = page
-```
-
-The page switching is handled in `show_page()`:
-
-```python
-for name, page in self._pages.items():
-    if name == page_name:
-        page.tkraise()
-
-self._update_sidebar_state(page_name)
-```
-
-This raises the target page to the top of the stacking order, while leaving other pages in memory and hidden.
-
-The sidebar state is updated by `_update_sidebar_state()`, which selects either `SidebarActive.TButton` or `Sidebar.TButton` based on the active page.
-
-The final window sizing is controlled by `_size_window_to_content()`:
-
-```python
-self.update_idletasks()
-page_widths = [page.winfo_reqwidth() for page in self._pages.values()]
-page_heights = [page.winfo_reqheight() for page in self._pages.values()]
-required_width = max(page_widths) + self.sidebar.winfo_reqwidth() + 28
-required_height = max(page_heights) + 24
-```
-
-Then the code clamps values to the current screen size and centers the window:
-
-```python
-max_width = max(0, self.winfo_screenwidth() - 40)
-max_height = max(0, self.winfo_screenheight() - 80)
-required_width = min(max(1000, required_width), max_width)
-required_height = min(max(650, required_height), max_height)
-self.geometry(f"{required_width}x{required_height}")
-self.minsize(required_width, required_height)
-```
-
-This is the code path used to adapt the default window size to the content.
-
-### 4.2 `BasePage`
-
-`BasePage` is a thin shared parent class in `gui/pages/base_page.py`.
-
-```python
-class BasePage(ttk.Frame):
-    def __init__(self, parent: tk.Widget, title: str, placeholder_text: str) -> None:
-        super().__init__(parent, style="Content.TFrame")
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
-
-        title_label = ttk.Label(self, text=title, style="PageTitle.TLabel")
-        title_label.grid(row=0, column=0, sticky="w", pady=(0, 14))
-
-        body = ttk.Label(
-            self,
-            text=placeholder_text,
-            style="PageBody.TLabel",
-            wraplength=650,
-            justify="left",
-        )
-        body.grid(row=1, column=0, sticky="nw")
-```
-
-This gives every page a consistent title label and a placeholder body label. Child pages such as `EncryptionPage`, `PasswordsPage`, `AttacksPage`, and `IntegrityPage` call `super().__init__(...)` and then add their own widgets.
-
-### 4.3 Page classes in the project
-
-#### `EncryptionPage`
-
-`gui/pages/encryption_page.py` is the only page that currently contains real algorithm logic. It is a subclass of `BasePage` and builds a selector for `Caesar`, `Playfair`, and `Hill`.
+This validates the real Caesar, Playfair, and Hill logic with the current implementation and known-good vectors.
 
 It creates:
 
@@ -273,17 +138,14 @@ The code for the Hill panel is built in `_build_hill_panel()`. The matrix grid f
 
 #### `PasswordsPage`
 
-`gui/pages/passwords_page.py` is a placeholder page:
+`gui/pages/passwords_page.py` implements the password defence controls:
 
-```python
-super().__init__(
-    parent,
-    "Passwords",
-    "Not implemented yet - add your widgets here.",
-)
-```
-
-It does not currently implement password widgets. There is only a `# TODO` comment.
+- Classroom use case selector (`USE_CASES`: use case 1 `"01"`, length 3; use case 2 `"1234"`, length 4; use cases 3, 4, 5 for Case 3 64-character alphabet with lengths 4, 6, and 8)
+- Password entry field with hidden characters (`*`), cleared immediately upon storage
+- Fast hash calculation using SHA-256 (`passwords/generators.py`)
+- Salted, iterated PBKDF2-HMAC-SHA256 protected record storage (`passwords/protection.py`)
+- Hand-off of the stored target to `SSADToolkitApp.shared` for the Attacks page
+- Login testing panel with constant-time verification (`verify_protected()`) and 5-attempt lockout (`Lockout`) with a live 30-second countdown timer.
 
 #### `AttacksPage`
 
@@ -411,21 +273,21 @@ Again, all actual mathematics is centralized in `crypto/hill.py`.
 For the Hill workflow, the call pattern is:
 
 1. `EncryptionPage._build_hill_panel()` creates the inputs and hooks buttons.
-2. `EncryptionPage._rebuild_hill_key_grid()` creates the matrix `ttk.Entry` widgets for the selected size.
-3. When the user clicks `Check key`, `EncryptionPage._check_hill_key()` runs:
-   - `_parse_hill_key()` reads the `ttk.Entry` values and validates that each cell is an integer
+2. `EncryptionPage._rebuild_hill_grids()` creates the matrix `ttk.Entry` widgets for both sender and receiver (all starting empty).
+3. When the user clicks `Check key`, `EncryptionPage._check_hill_key()` (sender) or `_check_hill_receiver_key()` (receiver) runs:
+   - `_parse_hill_key()` or `_parse_hill_receiver_key()` reads the `ttk.Entry` values and validates that each cell is an integer
    - `hill.validate_key(key)` checks invertibility modulo 26
    - `hill.determinant(key) % 26` is used to get the determinant modulo 26
    - `_set_status()` or `_set_error_status()` sets the label text
 4. When the user clicks `Encrypt`, `EncryptionPage._encrypt_hill_message()` runs:
-   - `_parse_hill_key()` is the real validation path used before encryption
+   - `_parse_hill_key()` strictly validates Entity A's key matrix before encryption
    - `hill.normalize(text)` strips non-letters and uppercases
    - `hill.padding_length(...)` computes the number of trailing `X` letters needed
    - `hill.encrypt(text, key)` returns ciphertext
    - the result is assigned to `self.ciphertext_var`
-5. When the user clicks `Send to B`, `EncryptionPage._send_hill_cipher_to_b()` copies the values to the receiver side.
+5. When the user clicks `Send to B`, `EncryptionPage._send_hill_cipher_to_b()` copies only the ciphertext and padding count to the receiver side (keys are never copied).
 6. When the user clicks `Decrypt`, `EncryptionPage._decrypt_hill_message()` runs:
-   - `_parse_hill_key()` validates the key matrix first
+   - `_parse_hill_receiver_key()` strictly validates Entity B's key matrix first
    - reads the ciphertext and optional padding value from `receiver_padding`
    - calls `hill.decrypt(ciphertext, key, pad_len=pad_len)`
    - writes the result to `self.receiver_result`
@@ -460,61 +322,35 @@ self.status_var.set(message)
 self.status_label.configure(foreground="#c92a2a" if is_error else "#0f5132")
 ```
 
-### 5.4 How the matrix grid is built and rebuilt
+### 5.4 How the matrix grids are built and rebuilt
 
-The key grid is built in `_rebuild_hill_key_grid()`:
+Both Entity A (sender) and Entity B (receiver) have their own independent matrix grids. Pre-filled keys and `HILL_KEY_DEFAULTS` no longer exist: all key grids start completely empty, requiring manual typing.
+
+The sender grid is built in `_rebuild_hill_key_grid()` and the receiver grid in `_rebuild_hill_receiver_key_grid()`. Both are managed together by `_rebuild_hill_grids()`:
 
 ```python
 size = 2 if self.hill_key_size_var.get() == "2x2" else 3
-values = self.HILL_KEY_DEFAULTS.get(self.hill_key_size_var.get(), [3, 3, 2, 5])
 self.hill_entries = []
 
 for row_index in range(size):
     row_entries = []
     for col_index in range(size):
-        value = str(values[row_index * size + col_index])
         entry = ttk.Entry(self.hill_key_matrix_frame, width=4)
-        entry.insert(0, value)
         entry.grid(row=row_index, column=col_index, padx=2, pady=2)
         row_entries.append(entry)
     self.hill_entries.append(row_entries)
 ```
 
-This rebuilds the matrix whenever the user changes the combo box value.
+When key size changes, both old matrices are destroyed and rebuilt with empty cells. When Entity A changes size via `self.hill_key_size_var`, Entity B's size variable `self.hill_receiver_key_size_var` automatically follows A's size (size only, never values), and both grids are cleared. Both grids are also cleared when switching algorithms or pressing the **Clear keys** button.
 
-When the key size changes, the old matrix is destroyed first:
+The obsolete `_current_hill_key()` method that silently converted empty or non-integer cells to `0` was removed entirely. Validation is performed strictly by `_parse_hill_key()` (for sender A) and `_parse_hill_receiver_key()` (for receiver B):
 
-```python
-for widget in self.hill_key_matrix_frame.winfo_children():
-    widget.destroy()
-```
+- If a cell is empty:
+  `Entry at row R, column C is empty.` (displayed in red `#c92a2a`)
+- If a cell contains a non-integer:
+  `Entry at row R, column C is not an integer.` (displayed in red `#c92a2a`)
 
-Then values are repopulated with the defaults from `HILL_KEY_DEFAULTS`:
-
-```python
-HILL_KEY_DEFAULTS = {
-    "2x2": [3, 3, 2, 5],
-    "3x3": [6, 24, 1, 13, 16, 10, 20, 17, 15],
-}
-```
-
-Reading values back is done in `_current_hill_key()`:
-
-```python
-text = self.hill_entries[row_index][col_index].get().strip()
-try:
-    row.append(int(text))
-except ValueError:
-    row.append(0)
-```
-
-This method still converts empty or non-integer cells to `0` if it is used in a computation path. The actual validation path used by the GUI is `_parse_hill_key()`, which rejects empty or non-integer cells immediately with the exact red status message:
-
-```python
-self._set_error_status(f"Entry at row {row_index + 1}, column {col_index + 1} is not an integer.")
-```
-
-This is the method used when the user clicks `Check key`, `Encrypt`, or `Decrypt`. The current app does not silently coerce malformed entries to zero in those real validation flows, but `_current_hill_key()` remains a latent bug because it does exactly that if it is invoked on malformed input.
+Decryption reads ONLY Entity B's matrix grid via `_parse_hill_receiver_key()`. Nothing ever copies keys from A to B.
 
 ## 6. The Hill cipher: the theory
 
@@ -1138,41 +974,48 @@ python -m unittest discover -s tests -v
 Real output from the current workspace:
 
 ```text
-test_vectors (test_ciphers.TestCaesarCipher.test_vectors) ... skipped 'no Caesar
- test vectors yet'
+test_vectors (test_ciphers.TestCaesarCipher.test_vectors) ... ok
 test_vectors (test_ciphers.TestHillCipher.test_vectors) ... ok
-test_vectors (test_ciphers.TestPlayfairCipher.test_vectors) ... skipped 'no Play
-fair test vectors yet'
-test_algorithm_vector_3x3 (test_hill.TestHillCipherLogic.test_algorithm_vector_3
-x3) ... ok
-test_box_padding_behavior (test_hill.TestHillCipherLogic.test_box_padding_behavi
-or) ... ok
-test_decrypt_rejects_non_multiple_length (test_hill.TestHillCipherLogic.test_dec
-rypt_rejects_non_multiple_length) ... ok
-test_decrypt_rejects_padding_range_and_type (test_hill.TestHillCipherLogic.test_
-decrypt_rejects_padding_range_and_type) ... ok
-test_decrypt_without_pad_len_keeps_padding (test_hill.TestHillCipherLogic.test_d
-ecrypt_without_pad_len_keeps_padding) ... ok
-test_empty_message_rejected (test_hill.TestHillCipherLogic.test_empty_message_re
-jected) ... ok
+test_vectors (test_ciphers.TestPlayfairCipher.test_vectors) ... ok
+test_algorithm_vector_3x3 (test_hill.TestHillCipherLogic.test_algorithm_vector_3x3) ... ok
+test_box_padding_behavior (test_hill.TestHillCipherLogic.test_box_padding_behavior) ... ok
+test_decrypt_rejects_non_multiple_length (test_hill.TestHillCipherLogic.test_decrypt_rejects_non_multiple_length) ... ok
+test_decrypt_rejects_padding_range_and_type (test_hill.TestHillCipherLogic.test_decrypt_rejects_padding_range_and_type) ... ok
+test_decrypt_without_pad_len_keeps_padding (test_hill.TestHillCipherLogic.test_decrypt_without_pad_len_keeps_padding) ... ok
+test_empty_message_rejected (test_hill.TestHillCipherLogic.test_empty_message_rejected) ... ok
 test_padding_length (test_hill.TestHillCipherLogic.test_padding_length) ... ok
-test_round_trip_randomized_text (test_hill.TestHillCipherLogic.test_round_trip_r
-andomized_text) ... ok
-test_validate_key_rejects_invalid_keys (test_hill.TestHillCipherLogic.test_valid
-ate_key_rejects_invalid_keys) ... ok
+test_round_trip_randomized_text (test_hill.TestHillCipherLogic.test_round_trip_randomized_text) ... ok
+test_validate_key_rejects_invalid_keys (test_hill.TestHillCipherLogic.test_validate_key_rejects_invalid_keys) ... ok
+test_candidates_case_3_vector_abcd (test_protection.TestGenerators.test_candidates_case_3_vector_abcd) ... ok
+test_candidates_use_case_1 (test_protection.TestGenerators.test_candidates_use_case_1) ... ok
+test_candidates_use_case_2 (test_protection.TestGenerators.test_candidates_use_case_2) ... ok
+test_hash_fast_known_vector (test_protection.TestGenerators.test_hash_fast_known_vector) ... ok
+test_five_failures_lock_and_unlock_after_lock_seconds (test_protection.TestLockout.test_five_failures_lock_and_unlock_after_lock_seconds) ... ok
+test_success_resets_failure_counter (test_protection.TestLockout.test_success_resets_failure_counter) ... ok
+test_case_3_round_trip (test_protection.TestProtectedHashingAndChecker.test_case_3_round_trip) ... ok
+test_make_checker_hex_and_record_and_invalid (test_protection.TestProtectedHashingAndChecker.test_make_checker_hex_and_record_and_invalid) ... ok
+test_round_trip_and_wrong_password (test_protection.TestProtectedHashingAndChecker.test_round_trip_and_wrong_password) ... ok
+test_tampered_and_malformed_records (test_protection.TestProtectedHashingAndChecker.test_tampered_and_malformed_records) ... ok
+test_unique_salts_and_hashes (test_protection.TestProtectedHashingAndChecker.test_unique_salts_and_hashes) ... ok
+test_unknown_use_case_rejected (test_protection.TestProtectionValidation.test_unknown_use_case_rejected) ... ok
+test_use_case_1_rejections (test_protection.TestProtectionValidation.test_use_case_1_rejections) ... ok
+test_use_case_2_rejections (test_protection.TestProtectionValidation.test_use_case_2_rejections) ... ok
+test_use_case_3_rejections (test_protection.TestProtectionValidation.test_use_case_3_rejections) ... ok
+test_use_case_4_rejections (test_protection.TestProtectionValidation.test_use_case_4_rejections) ... ok
+test_use_case_5_rejections (test_protection.TestProtectionValidation.test_use_case_5_rejections) ... ok
+test_valid_passwords_accepted (test_protection.TestProtectionValidation.test_valid_passwords_accepted) ... ok
+test_attack_stubs (test_smoke.TestCipherFunctions.test_attack_stubs) ... ok
+test_crypto_implementations (test_smoke.TestCipherFunctions.test_crypto_implementations) ... ok
+test_password_and_integrity_stubs (test_smoke.TestCipherFunctions.test_password_and_integrity_stubs) ... ok
 test_packages_import (test_smoke.TestImports.test_packages_import) ... ok
-test_attack_stubs (test_smoke.TestStubFunctions.test_attack_stubs) ... ok
-test_crypto_stubs (test_smoke.TestStubFunctions.test_crypto_stubs) ... ok
-test_password_and_integrity_stubs (test_smoke.TestStubFunctions.test_password_an
-d_integrity_stubs) ... ok
 
 ----------------------------------------------------------------------
-Ran 16 tests in 0.013s
+Ran 34 tests in 0.085s
 
-OK (skipped=2)
+OK
 ```
 
-This is the exact current status from the workspace: 16 tests ran, 14 passed, 2 were skipped, and the suite ended with `OK (skipped=2)`.
+This is the exact current status from the workspace: 34 tests ran, all 34 passed, 0 were skipped, and the suite ended with `OK`.
 
 ## 10. How to add a new algorithm or page
 
@@ -1238,18 +1081,17 @@ Notable disagreement with documentation: the README still describes the project 
 
 This section is based only on the code as it exists today.
 
-- `crypto/caesar.py` is not implemented.
-- `crypto/playfair.py` is not implemented.
-- `passwords/generators.py`, `passwords/brute_force.py`, `passwords/dictionary.py`, `passwords/protection.py`, and `integrity/integrity.py` are all stubs.
-- `attacks/caesar_attack.py`, `attacks/playfair_attack.py`, and `attacks/hill_attack.py` are stubs.
-- `gui/pages/passwords_page.py`, `gui/pages/attacks_page.py`, and `gui/pages/integrity_page.py` are placeholder pages.
+- `crypto/caesar.py`, `crypto/playfair.py`, and `crypto/hill.py` are fully implemented and verified against unit test vectors.
+- `passwords/generators.py`, `passwords/protection.py`, and `gui/pages/passwords_page.py` are implemented on the defence side.
+- `passwords/brute_force.py`, `passwords/dictionary.py`, `attacks/*.py`, and `integrity/integrity.py` remain stubs for teammate implementation.
+- `gui/pages/attacks_page.py` and `gui/pages/integrity_page.py` remain placeholder pages.
 - The app does not yet connect any real network or persistence layer.
 - The default GUI is a classroom shell rather than a production-ready cryptography suite.
-- `EncryptionPage` uses the strict parser for actual validation, so invalid cells are rejected rather than silently converted to zero.
-- `_current_hill_key()` still converts empty or non-integer cells to `0` if it is used in a computation path. In the current code, it is still called exactly once, in the `Shared secret key:` display inside `EncryptionPage.__init__()`, to show the current matrix in the UI; it is not used as the validation path for key checking or encryption/decryption.
+- Keys are always typed manually; no pre-filled or automatic keys exist. Entity B has its own key field / matrix in all three panels. "Clear keys" clears all keys across sender and receiver.
+- `_current_hill_key()` was removed entirely and replaced by strict matrix validation in `_parse_hill_key()` and `_parse_hill_receiver_key()`.
 - There is no bug in `encrypt()`: it does reject non-invertible keys by checking `gcd(det_mod, 26) == 1` before performing any block math.
-- `gui/background.py` exists as a helper for long-running work, but the current app does not yet use it anywhere.
-- There is no `CONVENTIONS.md` in the workspace, so conventions are implicit and only visible in the code.
+- `gui/background.py` exists as a helper for long-running work (used by the attacker team's background attack execution).
+- There is no `CONVENTIONS.md` in the workspace, so conventions are implicit and visible in the code.
 
 ## 13. Quick start
 
@@ -1274,7 +1116,7 @@ The app has four entries in `PAGE_DEFINITIONS` in `gui/app.py`:
 
 ### Which page works today
 
-The code in `gui/pages/encryption_page.py` is the only page that contains real algorithm logic and is the only one that is functionally active in the current codebase. The other three pages are placeholders. This is visible in the code: `PasswordsPage`, `AttacksPage`, and `IntegrityPage` all call `BasePage` with placeholder text, while `EncryptionPage` builds the Hill workflow.
+`EncryptionPage` (with working Caesar, Playfair, and Hill panels) and `PasswordsPage` (with use cases 1 and 2, fast SHA-256 hash, salted PBKDF2 storage, lockout, and shared hand-off) contain real algorithm and defence logic and are functionally active. `AttacksPage` and `IntegrityPage` remain placeholder pages.
 
 ## 14. User guide for the Hill panel
 
@@ -1282,17 +1124,19 @@ The code in `gui/pages/encryption_page.py` is the only page that contains real a
 
 The Hill panel in `gui/pages/encryption_page.py` contains:
 
-- `Key size` selector: `2x2` or `3x3`
-- `Check key` button: validates the current matrix
-- `Shared secret key` matrix grid: editable `ttk.Entry` cells
-- `Entity A (sender)` message area: a `tk.Text` input for the plaintext
+- `Entity A (sender)` Key size selector: `2x2` or `3x3`
+- `Check key` buttons: validate the matrix for Entity A and Entity B
+- `Entity A (sender)` matrix grid: editable `ttk.Entry` cells, empty at startup
+- `Entity A (sender)` message area: a `tk.Text` input for plaintext
 - `Encrypt` button: encrypts the sender text and computes padding length
-- `Ciphertext:` output field: read-only result of the encryption
-- `Padding added:` label: number of trailing `X` letters required by `padding_length()`
-- `Send to B` button: copies the ciphertext and padding count to the receiver side
+- `Clear keys` button: clears all key fields across sender and receiver
+- `Ciphertext:` output field: read-only result of encryption
+- `Padding added:` label: number of trailing `X` letters required
+- `Send to B` button: copies ciphertext and padding count only, never keys
+- `Entity B (receiver)` Key size selector and matrix grid: editable `ttk.Entry` cells, empty at startup
 - `Entity B (receiver)` ciphertext field: editable ciphertext entry
 - `Padding length (optional):` field: optional pad length used during decryption
-- `Decrypt` button: decrypts the receiver ciphertext using the key
+- `Decrypt` button: decrypts the receiver ciphertext using Entity B's key grid
 - `Result:` field: read-only plaintext result
 
 ### Status messages and colors
@@ -1562,20 +1406,20 @@ This section is grounded in the actual workspace files.
 | File | Role | Public functions or classes | Who is expected to edit it |
 | --- | --- | --- | --- |
 | `main.py` | App entry point | `run_app()` | App/GUI maintainer |
-| `gui/app.py` | Window shell, page registry, sidebar | `SSADToolkitApp`, `PAGE_DEFINITIONS`, `show_page()`, `_build_sidebar()`, `_build_pages()` | GUI maintainer |
+| `gui/app.py` | Window shell, page registry, sidebar, shared hand-off state | `SSADToolkitApp`, `PAGE_DEFINITIONS`, `self.shared`, `show_page()`, `_build_sidebar()`, `_build_pages()` | GUI maintainer |
 | `gui/background.py` | Background-task helper | `run_in_background()` or equivalent helper pattern | GUI maintainer |
 | `gui/pages/base_page.py` | Shared page frame | `BasePage.__init__()` | GUI maintainer |
-| `gui/pages/encryption_page.py` | Hill UI and control logic | `EncryptionPage.__init__()`, `_build_hill_panel()`, `_rebuild_hill_key_grid()`, `_current_hill_key()`, `_parse_hill_key()`, `_check_hill_key()`, `_encrypt_hill_message()`, `_decrypt_hill_message()` | Hill/GUI maintainer |
-| `gui/pages/passwords_page.py` | Placeholder page | `PasswordsPage` | future password feature work |
+| `gui/pages/encryption_page.py` | Caesar, Playfair, and Hill UI and control logic | `EncryptionPage.__init__()`, `_build_algorithm_selector()`, `_render_algorithm_panel()`, `_build_caesar_panel()`, `_build_playfair_panel()`, `_build_hill_panel()`, `_rebuild_hill_grids()`, `_parse_hill_key()`, `_parse_hill_receiver_key()`, `_check_hill_key()`, `_check_hill_receiver_key()`, `clear_keys()`, `_encrypt_hill_message()`, `_decrypt_hill_message()` | Hill/GUI maintainer |
+| `gui/pages/passwords_page.py` | Defender password storage and login UI | `PasswordsPage.__init__()`, `_store_password()`, `_send_to_attacks()`, `_clear_all()`, `_login()`, `_start_lock_countdown()` | password defender maintainer |
 | `gui/pages/attacks_page.py` | Placeholder page | `AttacksPage` | future attack feature work |
 | `gui/pages/integrity_page.py` | Placeholder page | `IntegrityPage` | future integrity/authenticity work |
 | `crypto/hill.py` | Actual Hill implementation | `normalize()`, `_coerce_key()`, `determinant()`, `inverse_key()`, `validate_key()`, `padding_length()`, `_matrix_multiply()`, `encrypt()`, `decrypt()` | cryptography maintainer |
-| `crypto/caesar.py` | Caesar cipher stub | public functions raise `NotImplementedError` | future cipher implementation |
-| `crypto/playfair.py` | Playfair cipher stub | public functions raise `NotImplementedError` | future cipher implementation |
-| `passwords/brute_force.py` | Stubbed password tooling | undefined/placeholder functions | password toolkit maintainer |
-| `passwords/dictionary.py` | Stubbed password tooling | undefined/placeholder functions | password toolkit maintainer |
-| `passwords/generators.py` | Stubbed generator tooling | undefined/placeholder functions | password toolkit maintainer |
-| `passwords/protection.py` | Stubbed protection tooling | undefined/placeholder functions | password toolkit maintainer |
+| `crypto/caesar.py` | Caesar cipher implementation | `normalize()`, `validate_key()`, `encrypt()`, `decrypt()` | cryptography maintainer |
+| `crypto/playfair.py` | Playfair cipher implementation | `validate_key()`, `encrypt()`, `decrypt()`, `_build_matrix()` | cryptography maintainer |
+| `passwords/brute_force.py` | Stubbed password tooling | undefined/placeholder functions | password attacker maintainer |
+| `passwords/dictionary.py` | Stubbed password tooling | undefined/placeholder functions | password attacker maintainer |
+| `passwords/generators.py` | Password use cases, fast SHA-256 hash, candidate generator | `USE_CASES`, `hash_fast()`, `candidates()` | password defender maintainer |
+| `passwords/protection.py` | Password validation, PBKDF2 storage, constant-time verify, checker factory, lockout | `ITERATIONS`, `SALT_BYTES`, `MAX_FAILURES`, `LOCK_SECONDS`, `validate_password()`, `hash_protected()`, `verify_protected()`, `make_checker()`, `Lockout` | password defender maintainer |
 | `integrity/integrity.py` | Stubbed integrity helpers | undefined/placeholder functions | integrity maintainer |
 | `attacks/caesar_attack.py` | Stubbed Caesar attack logic | undefined/placeholder functions | attack analysis maintainer |
 | `attacks/hill_attack.py` | Stubbed Hill attack logic | undefined/placeholder functions | attack analysis maintainer |
@@ -1583,13 +1427,405 @@ This section is grounded in the actual workspace files.
 | `tests/vectors.py` | Test vectors | `CAESAR_VECTORS`, `PLAYFAIR_VECTORS`, `HILL_VECTORS` | test maintainer |
 | `tests/test_hill.py` | Hill regression tests | `TestHillCipherLogic` | cryptography maintainer |
 | `tests/test_ciphers.py` | Vector-driven tests | `TestCaesarCipher`, `TestHillCipher`, `TestPlayfairCipher` | test maintainer |
-| `tests/test_smoke.py` | Import smoke tests | `TestImports`, `TestStubFunctions` | project maintainer |
+| `tests/test_protection.py` | Password generator and defence unit tests | `TestGenerators`, `TestProtectionValidation`, `TestProtectedHashingAndChecker`, `TestLockout` | password defender maintainer |
+| `tests/test_smoke.py` | Import, stub, and cipher smoke checks | `TestImports`, `TestCipherFunctions` | test maintainer |
+| `tests/test_smoke.py` | Import and stub smoke tests | `TestImports`, `TestCipherFunctions` | project maintainer |
 | `benchmarks.py` | Timing helper for cipher functions | helper functions for timing benchmark entries | project maintainer |
 | `README.md` | User-level overview | project README | documentation maintainer |
 | `PROJECT_UPDATE.md` | Update log | status notes | project maintainer |
 | `docs/PROJECT_GUIDE.md` | Current code-grounded guide | all sections in this document | documentation maintainer |
 
-## 20. Glossary
+## 20. The passwords study and the three use cases
+
+Part 3 of the SSAD practical work studies password security by pitting two sides against each other:
+
+1. **The Defender** (`passwords/generators.py`, `passwords/protection.py`, `gui/pages/passwords_page.py`), who validates user passwords according to a selected use case, produces both an unprotected fast digest and a salted PBKDF2-HMAC-SHA256 protected record, enforces a login lockout policy, and exposes a unified `check(candidate) -> bool` callable for the attacker.
+2. **The Attacker** (`passwords/brute_force.py`, `passwords/dictionary.py`, `gui/pages/attacks_page.py`), who runs brute-force and dictionary attacks against either the fast SHA-256 hash or the protected record to measure attempts and elapsed time.
+
+### The three classroom use cases
+
+The use cases are defined in `USE_CASES` at the top of `passwords/generators.py`:
+
+```python
+CASE_3_ALPHABET = (
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    "+*"
+)
+
+USE_CASES: dict[int, dict[str, str | int]] = {
+    1: {"alphabet": "01", "length": 3},
+    2: {"alphabet": "1234", "length": 4},
+    3: {"alphabet": CASE_3_ALPHABET, "length": 4},
+    4: {"alphabet": CASE_3_ALPHABET, "length": 6},
+    5: {"alphabet": CASE_3_ALPHABET, "length": 8},
+}
+```
+
+| Use case | Alphabet | Length ($L$) | Keyspace size ($N = \lvert\Sigma\rvert^L$) | Status in code |
+| --- | --- | --- | --- | --- |
+| Use case 1 | `"01"` | `3` | $2^3 = 8$ passwords (`"000"` to `"111"`) | Implemented in `USE_CASES[1]` |
+| Use case 2 | `"1234"` | `4` | $4^4 = 256$ passwords (`"1111"` to `"4444"`) | Implemented in `USE_CASES[2]` |
+| Use case 3 | 64 chars (`a-z`, `A-Z`, `0-9`, `+`, `*`) | `4` | $64^4 = 16,777,216$ passwords | Implemented in `USE_CASES[3]` |
+| Use case 4 | 64 chars (`a-z`, `A-Z`, `0-9`, `+`, `*`) | `6` | $64^6 = 68,719,476,736$ passwords | Implemented in `USE_CASES[4]` |
+| Use case 5 | 64 chars (`a-z`, `A-Z`, `0-9`, `+`, `*`) | `8` | $64^8 = 281,474,976,710,656$ passwords | Implemented in `USE_CASES[5]` |
+
+#### Case 3 alphabet and mathematical model
+
+The 64 characters are indexed in exact order:
+- `a-z` = indices 0 to 25
+- `A-Z` = indices 26 to 51
+- `0-9` = indices 52 to 61
+- `+` = index 62
+- `*` = index 63
+
+For any password of length $L$, its base-64 value is:
+$$\text{value} = \sum_{i=0}^{L-1} \text{index}(password[i]) \times 64^{L - 1 - i}$$
+Brute force attempts:
+$$\text{attempts} = \text{value} + 1$$
+Percentage tried:
+$$\% \text{ tried} = \frac{\text{attempts}}{N} \times 100\%$$
+
+#### Maths team specification tables (verified test vectors)
+
+**Case 1 ($N = 8$, alphabet `"01"`, $L = 3$):**
+Dictionary: `000`, `111`, `101`, `001`
+- `010`: value $2 + 1 = 3$ attempts ($37.50\%$), Dictionary: Not found (4 attempts)
+- `101`: value $5 + 1 = 6$ attempts ($75.00\%$), Dictionary: Found (3 attempts)
+- `111`: value $7 + 1 = 8$ attempts ($100.00\%$), Dictionary: Found (2 attempts)
+
+**Case 2 ($N = 256$, alphabet `"1234"`, $L = 4$):**
+Mapping: $1 \to 0, 2 \to 1, 3 \to 2, 4 \to 3$ with weights 64, 16, 4, 1.
+Dictionary: `1111`, `1234`, `4321`, `2222`, `3333`, `4444`, `1212`, `1122`
+- `1234`: mapped `0123`, value $0 + 16 + 8 + 3 = 27 \implies 28$ attempts ($10.94\%$), Dictionary: Found (2 attempts)
+- `2413`: mapped `1302`, value $64 + 48 + 0 + 2 = 114 \implies 115$ attempts ($44.92\%$), Dictionary: Not found (8 attempts)
+- `4444`: mapped `3333`, value $192 + 48 + 12 + 3 = 255 \implies 256$ attempts ($100.00\%$), Dictionary: Found (6 attempts)
+
+**Case 3 ($L = 4$, $N = 16,777,216$):**
+Dictionary: `1234`, `0000`, `1111`, `4321`, `1212`, `2000`, `abcd`, `pass`, `root`, `test`
+- `abcd`: values `[0, 1, 2, 3]`, $4,228$ attempts ($0.025\%$), Dictionary: Found (7 attempts)
+- `Ab56`: values `[26, 1, 57, 58]`, $6,823,547$ attempts ($40.67\%$), Dictionary: Not found (10 attempts)
+- `Q+g4`: values `[42, 62, 6, 56]`, $11,264,441$ attempts ($67.14\%$), Dictionary: Not found (10 attempts)
+
+**Case 3 ($L = 6$, $N = 68,719,476,736$):**
+Dictionary: `123456`, `111111`, `123123`, `654321`, `112233`, `secret`, `abc123`, `abcdef`, `Abc123`, `master`
+- `abcdef`: values `[0, 1, 2, 3, 4, 5]`, $17,314,054$ attempts ($0.025\%$), Dictionary: Found (8 attempts)
+- `Abc123`: values `[26, 1, 2, 53, 54, 55]`, $27,934,809,528$ attempts ($40.65\%$), Dictionary: Found (9 attempts)
+- `H*bD88`: values `[33, 63, 1, 29, 60, 60]`, $36,490,829,629$ attempts ($53.10\%$), Dictionary: Not found (10 attempts)
+
+**Case 3 ($L = 8$, $N = 281,474,976,710,656$):**
+Dictionary: `12345678`, `password`, `11111111`, `welcome1`, `admin123`, `87654321`, `abcdefgh`, `Pass1234`, `Abcd1234`, `football`
+- `abcdefgh`: values `[0, 1, 2, 3, 4, 5, 6, 7]`, $70,918,361,480$ attempts ($0.025\%$), Dictionary: Found (7 attempts)
+- `Abcd1234`: values `[26, 1, 2, 3, 53, 54, 55, 56]`, $114,420,140,699,129$ attempts ($40.65\%$), Dictionary: Found (9 attempts)
+- `jK+73*Dd`: values `[9, 36, 62, 59, 55, 63, 29, 3]`, $42,123,896,289,092$ attempts ($14.97\%$), Dictionary: Not found (10 attempts)
+
+*Conclusion*: Dictionary attack is very fast (at most 10 attempts in this suite) but fails if the target password is not in the list; brute force always succeeds eventually, but the number of required attempts explodes exponentially with length ($N = 64^L$).
+
+## 21. The defence system: theory and worked examples
+
+### 21.1 Fast hash vs protected record
+
+An unprotected system hashes the password once with a fast cryptographic hash function such as SHA-256:
+
+```python
+hashlib.sha256(password.encode("utf-8")).hexdigest()
+```
+
+SHA-256 is designed to process megabytes per second. An offline attacker who steals a raw SHA-256 digest can test millions of candidate passwords per second and can precompute lookup tables (rainbow tables) ahead of time.
+
+To defend stored passwords, `hash_protected()` in `passwords/protection.py` returns a **protected record** dictionary:
+
+```python
+{
+    "salt": "<32-char hex string (16 random bytes)>",
+    "iterations": 100000,
+    "hash": "<64-char hex string (32 derived bytes)>",
+}
+```
+
+**Worked example:**
+
+- Input password: `"abc"`
+- `hash_fast("abc")` always produces:
+  `ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad`
+- Calling `hash_protected("abc", iterations=1000)` twice produces two distinct records because each call draws a fresh 16-byte random salt from `os.urandom(16)`:
+  - Call 1: `salt = "a1f0..."`, `hash = "7c92..."`
+  - Call 2: `salt = "38b4..."`, `hash = "e04d..."`
+
+### 21.2 Cryptographic salt
+
+A **salt** is a random byte string generated with `os.urandom(SALT_BYTES)` (`SALT_BYTES = 16`, i.e., 128 bits) each time a password is stored. The salt is stored in cleartext alongside the hash in the record (`record["salt"]`).
+
+**Worked example:**
+Suppose two users both pick the password `"3214"` in use case 2.
+- Without a salt, both accounts store `hash_fast("3214")`, which is identical (`"96045403..."`). Cracking one cracks both, and a single precomputed table works for every account.
+- With a 16-byte random salt, User 1 receives salt $S_1$ and User 2 receives salt $S_2 \neq S_1$. Their PBKDF2 outputs `hash_protected("3214")` are completely different, forcing an attacker to attack each salt independently.
+
+### 21.3 Key stretching with PBKDF2 and iteration count
+
+`hash_protected()` uses `hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)` with `ITERATIONS = 100_000`. Instead of computing HMAC-SHA256 once, PBKDF2 chains 100,000 sequential HMAC-SHA256 rounds.
+
+**Worked example:**
+- A single `hash_fast("3214")` call executes 1 SHA-256 compression.
+- A single `verify_protected("3214", record)` call with `iterations = 100_000` executes 100,000 HMAC-SHA256 rounds—multiplying the CPU work per candidate guess by a factor of roughly $10^5$. For the legitimate user logging in once, a few tens of milliseconds is imperceptible; for a brute-force attacker testing every candidate in a keyspace, every single guess pays that 100,000-iteration penalty.
+
+### 21.4 Constant-time comparison
+
+When checking a candidate password against a stored digest, standard string equality (`derived == expected_hash`) stops at the first mismatched byte. In principle, an attacker who can measure response times with high precision could infer how many leading bytes matched.
+
+`verify_protected()` and `make_checker()` avoid early-exit comparison by calling `hmac.compare_digest(derived, expected_hash)` from Python's standard `hmac` module.
+
+**Worked example:**
+- Stored digest: `"ba7816bf..."`
+- Candidate 1 digest: `"00000000..."` (differs at index 0)
+- Candidate 2 digest: `"ba7816be..."` (matches first 7 chars, differs at index 7)
+`hmac.compare_digest` inspects all 64 hexadecimal characters in both cases before returning `False`, taking time independent of where the first difference occurs.
+
+### 21.5 Online account lockout
+
+While PBKDF2 slows down offline and online guessing per attempt, an online login form needs a hard cap on consecutive wrong tries. `Lockout` in `passwords/protection.py` tracks consecutive failed login attempts and locks the account for `LOCK_SECONDS = 30` seconds once `MAX_FAILURES = 5` consecutive failures occur.
+
+**Worked example:**
+- Start: `attempts_left() == 5`, `remaining() == 0.0`.
+- Wrong attempts 1..4: `record(False)` returns `False`; `attempts_left()` counts down `4, 3, 2, 1`.
+- Wrong attempt 5: `record(False)` reaches `max_failures = 5`, sets `_locked_until = clock() + 30.0`, resets `_failures = 0`, and returns `False`. Now `attempts_left() == 0` and `remaining() == 30.0`.
+- Attempt during lock (e.g. 10 seconds later, even with the **correct** password): `record(True)` sees `remaining() == 20.0 > 0` and raises `ValueError("Locked. Try again in 20 s.")`.
+- After 30 seconds have elapsed: `remaining() == 0.0`, `attempts_left() == 5`, and `record(True)` returns `True`.
+
+### 21.6 Input validation per use case
+
+Before hashing a password on the defender page, `validate_password(password, use_case)` enforces the alphabet and exact length of the chosen use case.
+
+**Worked example:**
+- `validate_password("101", 1)` -> valid (length 3, all chars in `"01"`).
+- `validate_password("10", 1)` -> raises `ValueError("Password must have exactly 3 characters.")`.
+- `validate_password("102", 1)` -> raises `ValueError("Only these characters are allowed: 01")`.
+
+## 22. Walkthrough of `passwords/generators.py` and `passwords/protection.py`
+
+### 22.1 `passwords/generators.py`
+
+#### `USE_CASES`
+Dictionary mapping integer use case IDs (`1` to `5`) to `{"alphabet": str, "length": int}`:
+- `1`: Alphabet `"01"`, length 3 ($N = 8$)
+- `2`: Alphabet `"1234"`, length 4 ($N = 256$)
+- `3`: Case 3 64-character alphabet, length 4 ($N = 16,777,216$)
+- `4`: Case 3 64-character alphabet, length 6 ($N = 68,719,476,736$)
+- `5`: Case 3 64-character alphabet, length 8 ($N = 281,474,976,710,656$)
+
+
+#### `hash_fast(password: str) -> str`
+Computes `hashlib.sha256(password.encode("utf-8")).hexdigest()`.
+- Raises `ValueError("Password must be a string.")` if `password` is not a `str`.
+
+#### `candidates(alphabet: str, length: int) -> Iterator[str]`
+Generator yielding `"".join(combo)` for every tuple in `itertools.product(alphabet, repeat=length)`. Because `itertools.product` advances the rightmost position fastest and the leftmost position slowest, `candidates("01", 3)` yields:
+`"000", "001", "010", "011", "100", "101", "110", "111"`.
+For use case 2 (`candidates("1234", 4)`), it yields 256 strings starting at `"1111"`, ending at `"4444"`, with `"3214"` at 0-based index `147` ($2 \times 4^3 + 1 \times 4^2 + 0 \times 4^1 + 3 \times 4^0 = 128 + 16 + 0 + 3 = 147$).
+- Raises `ValueError("Alphabet must be a non-empty string.")` if `alphabet` is not a non-empty `str`.
+- Raises `ValueError("Length must be a positive integer.")` if `length` is a `bool`, not an `int`, or `<= 0`.
+
+### 22.2 `passwords/protection.py`
+
+Named constants at the top of the file:
+
+```python
+ITERATIONS = 100_000
+SALT_BYTES = 16
+MAX_FAILURES = 5
+LOCK_SECONDS = 30
+```
+
+#### `validate_password(password: str, use_case: int) -> None`
+Validates `password` against `USE_CASES[use_case]`. Exact error messages raised:
+- `"Unknown use case."` — if `use_case` is a boolean or not a key in `USE_CASES`.
+- `"Password is empty."` — if `password` is not a `str` or equals `""`.
+- `"Password must have exactly {length} characters."` — if `len(password) != length`.
+- `"Only these characters are allowed: {alphabet}"` — if any character in `password` is not in `alphabet`.
+
+#### `hash_protected(password: str, iterations: int = ITERATIONS) -> dict[str, str | int]`
+Generates `salt = os.urandom(SALT_BYTES)`, derives a 32-byte key via `hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)`, and returns `{"salt": salt.hex(), "iterations": iterations, "hash": derived.hex()}`.
+- Raises `ValueError("Password must be a string.")` if `password` is not a `str`.
+- Raises `ValueError("Iterations must be a positive integer.")` if `iterations` is not a positive `int`.
+
+#### `verify_protected(password: str, record: dict[str, Any]) -> bool`
+Validates the shape and hexadecimal fields of `record` via `_parse_record(record)`, recomputes `hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt_bytes, iterations).hex()`, and returns `hmac.compare_digest(derived, expected_hash)`.
+- Raises `ValueError("Password must be a string.")` if `password` is not a `str`.
+- Raises `ValueError("Malformed record.")` if `record` is not a `dict`, does not have exact keys `{"salt", "iterations", "hash"}`, has an empty or non-hex `"salt"`, has a non-positive or non-int `"iterations"`, or has a `"hash"` that is not a 64-character hex string.
+
+#### `make_checker(target: str | dict[str, Any]) -> Callable[[str], bool]`
+Builds and returns a `check(candidate: str) -> bool` function so the attacker's code can attack either target representation with the exact same interface:
+- If `target` is a `str`: validates that it is a non-empty hexadecimal string and returns `lambda candidate: hmac.compare_digest(hash_fast(candidate), normalized_target)`.
+  - Raises `ValueError("Target hash string is empty.")` if empty after stripping.
+  - Raises `ValueError("Target string must be valid hexadecimal.")` if `bytes.fromhex()` fails.
+- If `target` is a `dict`: validates it immediately with `_parse_record(target)` (raising `ValueError("Malformed record.")` if malformed), copies it, and returns `lambda candidate: verify_protected(candidate, snapshot)`.
+- Otherwise: raises `ValueError("Target must be a hex string or a protected record dict.")`.
+
+#### `class Lockout`
+Constructed as `Lockout(max_failures=MAX_FAILURES, lock_seconds=LOCK_SECONDS, clock=time.monotonic)`.
+- `remaining() -> float`: returns `0.0` when unlocked or after the lock expires; otherwise returns `_locked_until - clock()`.
+- `attempts_left() -> int`: returns `0` while locked (`remaining() > 0.0`), or `max_failures - _failures` when unlocked.
+- `record(success: bool) -> bool`:
+  - If `remaining() > 0.0`, computes `n = max(1, int(math.ceil(rem)))` and raises `ValueError(f"Locked. Try again in {n} s.")` even if `success` is `True`.
+  - If `success` is `True`, resets `_failures = 0` and returns `True`.
+  - If `success` is `False`, increments `_failures`; when `_failures >= max_failures`, sets `_locked_until = float(clock()) + lock_seconds` and resets `_failures = 0`; returns `False`.
+
+## 23. How the Passwords page works step by step
+
+`gui/pages/passwords_page.py` defines `PasswordsPage(BasePage)` and follows the same layout and status-line conventions as `EncryptionPage`:
+
+- Top bar: a read-only `Use case:` `ttk.Combobox` populated from `generators.USE_CASES` (e.g., `"1 - alphabet 01, length 3"` and `"2 - alphabet 1234, length 4"`) and a status label (`#0f5132` green for normal status, `#c92a2a` red for errors).
+- Left `ttk.LabelFrame` (`"Store a password"`):
+  - Masked password `ttk.Entry` (`show="*"`, empty at startup) with an optional `Show` checkbutton.
+  - Action buttons: `Store`, `Send to Attacks`, and `Clear`.
+  - Read-only output entries for `Fast hash (SHA-256, unprotected)` and the `Protected record (PBKDF2-HMAC-SHA256)` broken out into `Salt:`, `Iterations:`, and `Hash:`.
+- Right `ttk.LabelFrame` (`"Log in"`):
+  - Masked attempt `ttk.Entry` (`show="*"`, cleared after every click) with a `Show` checkbutton.
+  - `Log in` button.
+  - `Protection status:` label displaying `"No password stored."`, `"Attempts left: N"`, or `"Locked. Try again in N s."`.
+
+### 23.1 Sequence diagram: Store a password
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Page as PasswordsPage
+    participant Prot as passwords.protection
+    participant Gen as passwords.generators
+    participant App as "SSADToolkitApp.shared"
+
+    User->>Page: type password and click Store
+    Page->>Page: read and clear store_password_entry
+    Page->>Prot: validate_password(password, use_case)
+    Prot-->>Page: valid (or raises ValueError)
+    Page->>Gen: hash_fast(password)
+    Gen-->>Page: fast_digest (SHA-256 hex)
+    Page->>Prot: hash_protected(password)
+    Prot-->>Page: record dict (salt, iterations, hash)
+    Page->>Prot: Lockout()
+    Prot-->>Page: fresh Lockout instance
+    Page->>Page: populate read-only hash and record fields
+    Page->>App: update shared (use_case, fast_hash, record)
+    Page->>Page: _set_status("Stored. Target ready for the Attacks page.")
+```
+
+### 23.2 Sequence diagram: Log in and lockout countdown
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Page as PasswordsPage
+    participant Prot as passwords.protection
+    participant Lock as Lockout
+
+    User->>Page: type attempt and click Log in
+    Page->>Page: read and clear attempt_entry
+    Page->>Prot: verify_protected(attempt, self._record)
+    Prot-->>Page: ok (bool)
+    Page->>Lock: record(ok)
+    alt Unlocked and ok is True
+        Lock-->>Page: True (counter reset)
+        Page->>Page: _set_status("Access granted.")
+    else Unlocked and ok is False (attempts remain)
+        Lock-->>Page: False
+        Page->>Page: _set_error_status("Wrong password, N attempts left.")
+    else 5th failure or already locked
+        Lock-->>Page: starts lock or raises ValueError
+        Page->>Page: disable Log in button
+        Page->>Page: _start_lock_countdown() via after(1000, ...)
+    end
+```
+
+When the account enters the locked state, `_start_lock_countdown()` disables `self.login_button`, displays `"Locked. Try again in {secs} s."` in red, and schedules itself every `1000` ms with `self.after(1000, self._start_lock_countdown)`. When `remaining()` reaches `0.0`, it re-enables `self.login_button` and restores `"Attempts left: 5"`. Calling `_clear_all()` or changing the use case cancels any pending timer via `self.after_cancel(self._countdown_job)`.
+
+## 24. Hand-off to the attacker
+
+The defender and attacker pages do not import each other. Instead, they communicate through two clean contracts:
+
+1. **`SSADToolkitApp.shared`**: initialized in `gui/app.py` before the pages are created:
+   ```python
+   self.shared = {"use_case": None, "fast_hash": None, "record": None}
+   ```
+   When the user stores a password on `PasswordsPage`, `_sync_shared()` writes the selected integer `use_case`, the 64-character `fast_hash` string, and a copy of the `record` dictionary into `self.winfo_toplevel().shared`. When the user clicks `Clear` or changes the use case, `shared` is reset back to `None` values.
+2. **`protection.make_checker(target)`**: wraps either `shared["fast_hash"]` (a `str`) or `shared["record"]` (a `dict`) into a uniform `check(candidate: str) -> bool` callable. The attacker's brute-force and dictionary functions accept `check` and test candidate strings without needing to know how hashing or salting is implemented.
+
+```mermaid
+flowchart TD
+    A["PasswordsPage (Defender)"] -->|"writes use_case, fast_hash, record"| B["SSADToolkitApp.shared"]
+    B -->|"reads target and use_case"| C["AttacksPage (Attacker)"]
+    C -->|"passes fast_hash (str) or record (dict)"| D["protection.make_checker(target)"]
+    D -->|"returns check(candidate) -> bool"| E["brute_force / dictionary_attack"]
+    F["generators.candidates(alphabet, length)"] -->|"yields candidate strings"| E
+```
+
+## 25. Tests for the defence side
+
+`tests/test_protection.py` tests `passwords/generators.py` and `passwords/protection.py` using `unittest` without sleeping:
+
+- **`TestGenerators`**:
+  - Checks `hash_fast("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"`.
+  - Checks `list(candidates("01", 3))` equals `["000", "001", "010", "011", "100", "101", "110", "111"]`.
+  - Checks `list(candidates("1234", 4))` has length `256`, starts with `"1111"`, ends with `"4444"`, and has `"3214"` at index `147`.
+- **`TestProtectionValidation`**:
+  - Verifies `validate_password` accepts `"101"` for use case 1 and `"3214"` for use case 2.
+  - Verifies rejection of unknown use cases (`0`, `3`, `99`, `-1`, `True`), empty passwords (`""`), wrong lengths, and characters outside the alphabet for both use cases with exact error message assertions.
+- **`TestProtectedHashingAndChecker`** (uses `iterations=1000` for fast execution):
+  - Verifies `hash_protected` + `verify_protected` round-trip success and wrong-password rejection.
+  - Verifies hashing the same password twice yields distinct salts and distinct hashes.
+  - Verifies tampering with `"hash"` or `"salt"` causes `verify_protected` to return `False`, and malformed records raise `ValueError("Malformed record.")`.
+  - Verifies `make_checker` works for both a fast hex string and a protected record, and raises `ValueError` for invalid types or malformed records.
+- **`TestLockout`** (uses an injectable `FakeClock` so tests run instantaneously):
+  - Verifies `attempts_left()` starts at `5` and counts down `4, 3, 2, 1, 0` across 5 consecutive failures.
+  - Verifies the 5th failure locks the instance for `LOCK_SECONDS = 30`.
+  - Verifies passing `record(True)` (a correct password) during the lock raises `ValueError("Locked. Try again in 20 s.")` after advancing the fake clock by 10 seconds.
+  - Verifies advancing the fake clock past `LOCK_SECONDS` unlocks the instance, restores `attempts_left() == 5`, and allows `record(True)` to return `True`.
+  - Verifies a successful login before the 5th failure resets the failure counter back to `5` attempts left.
+
+## 26. Defender demo script
+
+Follow these steps in the GUI (`python main.py` -> click **Passwords** in the sidebar) to demonstrate the defender workflow:
+
+1. **Select use case 2 and store `"3214"`**:
+   - In the `Use case:` combobox, select `2 - alphabet 1234, length 4`.
+   - In `Password:`, type `3214` and click **Store**.
+   - Expected result:
+     - The password entry is immediately cleared.
+     - `Fast hash (SHA-256, unprotected)` shows `96045403285b35d99e81c462e390b109c13644b7410862939c11b08a182d1564`.
+     - `Salt:`, `Iterations:` (`100000`), and `Hash:` are populated with the fresh PBKDF2 record.
+     - `Protection status:` shows `Attempts left: 5`.
+     - Status line (green): `"Stored. Target ready for the Attacks page."`
+2. **Trigger five wrong logins until lockout**:
+   - In `Password attempt:`, type `1111` and click **Log in** four times.
+   - Expected result after clicks 1..4: the attempt field clears after each click, and the red status line counts down `"Wrong password, 4 attempts left."` -> `"3 attempts left."` -> `"2 attempts left."` -> `"1 attempts left."`
+   - Type `1111` a fifth time and click **Log in**.
+   - Expected result: the `Log in` button is disabled, `Protection status:` and the red status line show `"Locked. Try again in 30 s."`, and the countdown ticks down every second.
+3. **Correct password refused during the lock**:
+   - While `Locked. Try again in N s.` is active, the `Log in` button is disabled in the UI, and at the logic level `lockout.record(True)` raises `ValueError("Locked. Try again in N s.")`, refusing access even for `"3214"`.
+4. **Correct login after the lock expires**:
+   - Wait for the 30-second countdown to reach `0` (the `Log in` button re-enables and status shows `"Lock expired. You may try again."`).
+   - Type `3214` into `Password attempt:` and click **Log in**.
+   - Expected result: green status `"Access granted."` and `Protection status:` resets to `Attempts left: 5`.
+
+## 27. Security analysis of the defence
+
+| Defence mechanism | What it stops or slows down | What it does NOT stop |
+| --- | --- | --- |
+| **Input validation** (`validate_password`) | Prevents empty passwords or out-of-spec symbols from being stored during the classroom exercise. | Does not increase entropy; in fact, restricting use cases 1 and 2 to tiny alphabets and short lengths keeps the keyspace tiny. |
+| **Random 16-byte salt** (`os.urandom(16)`) | Stops precomputed rainbow tables and prevents an attacker from attacking multiple accounts with the same password simultaneously. | Does not slow down a targeted brute-force search against a single stolen record. |
+| **PBKDF2-HMAC-SHA256 (`100,000` iterations)** | Multiplies the CPU cost of every single offline or online password guess by $\approx 10^5$ compared to raw SHA-256. | Cannot save a tiny keyspace from offline exhaustion: use case 1 has only $8$ candidates and use case 2 has only $256$ candidates (`"3214"` is at index `147`, i.e. the 148th attempt). Even at a few milliseconds per PBKDF2 evaluation, 148 guesses finish in well under a second. |
+| **Constant-time comparison** (`hmac.compare_digest`) | Prevents timing side-channel leaks when comparing candidate digests against stored digests. | Does not affect offline hash cracking where the attacker already possesses the target digest. |
+| **Online lockout** (`MAX_FAILURES = 5`, `LOCK_SECONDS = 30`) | Stops online brute-force attacks against the login form after 5 wrong guesses, adding a 30-second penalty every 5 attempts. | Has no effect on an **offline** attacker who has stolen the fast hash or the protected record and runs `make_checker` locally without going through `Lockout`. |
+
+In short, because use cases 1 ($2^3 = 8$) and 2 ($4^4 = 256$) have tiny keyspaces for classroom demonstration purposes, offline brute force still finds the password in both modes; the value of PBKDF2 is visible in the **cost per guess** (elapsed time per attempt in the Attacks page), while the value of `Lockout` is visible on the **online login interface**.
+
+## 28. Open points for the passwords module
+
+- `ITERATIONS = 100_000`, `SALT_BYTES = 16`, `MAX_FAILURES = 5`, and `LOCK_SECONDS = 30` at the top of `passwords/protection.py` are single-line named constants. The Case 3 specification from the maths team is fully integrated and tested across lengths $L = 4, 6, 8$.
+- Use cases 3, 4, 5 in `USE_CASES` in `passwords/generators.py` expose the Case 3 64-character alphabet across lengths 4, 6, 8 in `validate_password()`, `candidates()`, and the `PasswordsPage` combobox.
+- `passwords/brute_force.py`, `passwords/dictionary.py`, and `gui/pages/attacks_page.py` belong to the attacker teammate and are still stubs in this workspace.
+
+## 29. Glossary
 
 - `normalize`: remove non-letter characters and uppercase the result before processing; implemented in `crypto/hill.py`.
 - `coprime`: two integers share no common factor other than 1; required here so the determinant has an inverse modulo 26.
@@ -1605,7 +1841,14 @@ This section is grounded in the actual workspace files.
 - `adjugate`: the transpose of the cofactor matrix used to compute the inverse.
 - `padding`: extra trailing `X` letters added to a message so its length matches the matrix size.
 - `known-plaintext attack`: a cryptanalytic attack that uses matched plaintext/ciphertext pairs to recover the key.
+- `salt`: a random byte sequence (`os.urandom(16)`) combined with a password before hashing so identical passwords produce different stored hashes and precomputed tables cannot be reused.
+- `PBKDF2`: Password-Based Key Derivation Function 2 (`hashlib.pbkdf2_hmac`), which repeatedly applies a pseudorandom function (HMAC-SHA256) to a password and salt to make password guessing computationally expensive.
+- `iteration count`: the number of sequential HMAC-SHA256 rounds performed by PBKDF2 (`ITERATIONS = 100_000` by default in `passwords/protection.py`), directly scaling the CPU work per candidate check.
+- `lockout`: an online defence mechanism (`Lockout` in `passwords/protection.py`) that blocks login attempts for `LOCK_SECONDS` seconds after `MAX_FAILURES` consecutive failed attempts.
+- `constant-time comparison`: a digest comparison (`hmac.compare_digest`) whose execution time does not depend on how many leading bytes match, preventing timing side channels.
+- `check function`: a callable `check(candidate: str) -> bool` produced by `protection.make_checker(target)` that allows attack routines to test candidate passwords against either a fast SHA-256 hash or a protected PBKDF2 record through the same interface.
+- `shared dictionary`: the `self.shared` dictionary on `SSADToolkitApp` (`{"use_case": ..., "fast_hash": ..., "record": ...}`) used by `PasswordsPage` to hand off the stored password target to `AttacksPage`.
 
-This guide is deliberately grounded in the code that exists today. The actual authority is the Python source in `main.py`, `gui/app.py`, `gui/pages/encryption_page.py`, and `crypto/hill.py`.
+This guide is deliberately grounded in the code that exists today. The actual authority is the Python source in `main.py`, `gui/app.py`, `gui/pages/encryption_page.py`, `gui/pages/passwords_page.py`, `crypto/hill.py`, `passwords/generators.py`, and `passwords/protection.py`.
 
-`UNCERTAIN: the exact UX of the non-Hill pages and any project-wide convention document remain outside the code’s current proof; the current implementation is the only source of truth for event behavior and validation.`
+`UNCERTAIN: the exact UX of the Attacks and Integrity pages and any project-wide convention document remain outside the code’s current proof; the current implementation is the only source of truth for event behavior and validation.`

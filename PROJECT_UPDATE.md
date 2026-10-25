@@ -4,19 +4,21 @@ This document records the current state of the SSAD Toolkit project, including t
 
 ## Current status
 
-The project is no longer just a GUI shell. It includes a working Hill cipher implementation, GUI integration for the Hill form, and a compact layout that keeps the full Hill panel visible without scrolling.
+The project is a working classical-cipher toolkit. It includes a verified Caesar cipher, a working Hill implementation, and a validated Playfair implementation with manual key entry. The GUI keeps the encryption workflow consistent with the real algorithms and avoids silently generating or auto-filling keys.
 
 ## Completed work
 
-### Hill cipher implementation
+### Cipher implementations
 
 - Implemented the Hill cipher in `crypto/hill.py` with modular arithmetic and key validation.
+- Added the Playfair cipher in `crypto/playfair.py` with manual-key validation, 5x5 matrix construction, digraph handling, and round-trip encryption/decryption.
 - Added support for:
   - key normalization and validation
   - determinant and inverse-matrix handling
   - padding-length logic for plaintext blocks
-  - encryption and decryption flows
-  - round-trip behavior consistent with classical Hill cipher rules
+  - Playfair padding and matrix rules using the J-to-I convention
+  - encryption and decryption flows for all implemented ciphers
+  - round-trip behavior consistent with classical cipher rules
 
 ### GUI integration
 
@@ -29,6 +31,7 @@ The project is no longer just a GUI shell. It includes a working Hill cipher imp
 
 - Added and updated Hill-related tests in `tests/test_ciphers.py`, `tests/test_hill.py`, and `tests/vectors.py`.
 - Confirmed the suite passes successfully with `python -m unittest discover -s tests -v`.
+- Verified the Playfair vectors and smoke tests check the implemented behavior rather than the old stub expectations.
 - Verified the app launches successfully with `python main.py`.
 
 ### Layout refinement

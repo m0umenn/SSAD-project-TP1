@@ -46,6 +46,7 @@ class SSADToolkitApp(tk.Tk):
         self._buttons: dict[str, ttk.Button] = {}
         self._active_page_name: str | None = None
 
+        self.shared = {"use_case": None, "fast_hash": None, "record": None}
         self._build_sidebar()
         self._build_pages()
         self._size_window_to_content()

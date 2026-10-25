@@ -17,10 +17,10 @@ class TestImports(unittest.TestCase):
                 importlib.import_module(package_name)
 
 
-class TestStubFunctions(unittest.TestCase):
-    """Verify stub functions still raise NotImplementedError."""
+class TestCipherFunctions(unittest.TestCase):
+    """Verify the implemented ciphers behave as expected."""
 
-    def test_crypto_stubs(self) -> None:
+    def test_crypto_implementations(self) -> None:
         from crypto import caesar, hill, playfair
 
         self.assertEqual(caesar.encrypt("HELLO", 3), "KHOOR")
@@ -28,16 +28,11 @@ class TestStubFunctions(unittest.TestCase):
         self.assertTrue(caesar.validate_key(3))
         self.assertFalse(caesar.validate_key(0))
 
-        stub_calls = [
-            (playfair.encrypt, ("HELLO", "KEY")),
-            (playfair.decrypt, ("KEY", "KEY")),
-            (playfair.validate_key, ("KEY",)),
-        ]
-
-        for func, args in stub_calls:
-            with self.subTest(func=func.__name__):
-                with self.assertRaises(NotImplementedError):
-                    func(*args)
+        self.assertTrue(playfair.validate_key("MONARCHY"))
+        self.assertEqual(playfair.encrypt("HELLO", "MONARCHY"), "CFSUPM")
+        self.assertEqual(playfair.decrypt("CFSUPM", "MONARCHY"), "HELLO")
+        self.assertEqual(playfair.encrypt("MEETME", "MONARCHY"), "CLKLCL")
+        self.assertEqual(playfair.decrypt("CLKLCL", "MONARCHY"), "MEETME")
 
         self.assertTrue(hill.validate_key([[1, 0], [0, 1]]))
         self.assertEqual(hill.encrypt("HELLO", [[1, 0], [0, 1]]), "HELLOX")
@@ -45,14 +40,11 @@ class TestStubFunctions(unittest.TestCase):
 
     def test_password_and_integrity_stubs(self) -> None:
         from integrity import integrity
-        from passwords import brute_force, dictionary, generators, protection
+        from passwords import brute_force, dictionary
 
         stub_calls = [
-            (generators.get_sets, ()),
             (brute_force.brute_force, ("target", "abc", 3)),
             (dictionary.dictionary_attack, ("target", ["one", "two"])),
-            (protection.hash_password, ("secret",)),
-            (protection.verify_password, ("secret", "hash")),
             (integrity.hash_data, ("payload",)),
             (integrity.verify_data, ("payload", "digest")),
         ]

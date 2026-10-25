@@ -16,30 +16,51 @@ A simple way to picture the project is this:
 
 ```text
 ssad_toolkit/
+  benchmarks.py
   main.py
+  PROJECT_UPDATE.md
+  README.md
+  attacks/
+    __init__.py
+    caesar_attack.py
+    hill_attack.py
+    playfair_attack.py
+  crypto/
+    __init__.py
+    caesar.py
+    hill.py
+    playfair.py
+  docs/
+    EXAMPLE_KEYS.md
+    HOW_IT_WORKS.md
+    PROJECT_GUIDE.md
   gui/
+    __init__.py
     app.py
+    background.py
     pages/
+      __init__.py
+      attacks_page.py
       base_page.py
       encryption_page.py
-      passwords_page.py
-      attacks_page.py
       integrity_page.py
-  crypto/
-    hill.py
-    caesar.py
-    playfair.py
+      passwords_page.py
+  integrity/
+    __init__.py
+    integrity.py
   passwords/
-    generators.py
+    __init__.py
     brute_force.py
     dictionary.py
+    generators.py
     protection.py
-  integrity/
-    integrity.py
   tests/
-    vectors.py
-    test_hill.py
+    __init__.py
     test_ciphers.py
+    test_hill.py
+    test_protection.py
+    test_smoke.py
+    vectors.py
 ```
 
 The top-level structure is split into a few teams of work. The GUI folder holds the screen and buttons, the crypto folder holds the cipher maths, and the tests folder checks that the maths still works. The key idea is that the screen and the maths live in different files, and the GUI never does cipher maths itself. That is good for a team because one person can rebuild the screen while another improves the matrix arithmetic, and they only meet at a clear border: the GUI reads values, sends them to a function, and shows the result.
@@ -69,7 +90,7 @@ Files to open for this section
 
 Every page inherits from [BasePage](../gui/pages/base_page.py#L8-L25), which is a small Tkinter frame that gives each screen a title area and a body area. In plain English, a page is a card in a stack: one card sits in the content area, and the app shows one card at a time. The shared page base creates the title line and then leaves the rest of the space for the real page content. That is why the structure is consistent across the app.
 
-The real page classes are created in their own files. [EncryptionPage](../gui/pages/encryption_page.py#L11-L333) is the page that handles cipher controls and the Hill panel. [PasswordsPage](../gui/pages/passwords_page.py#L8-L16), [AttacksPage](../gui/pages/attacks_page.py#L8-L17), and [IntegrityPage](../gui/pages/integrity_page.py#L8-L17) are still shells: they inherit from the base class and show a simple placeholder message. They are not full implementations yet, so they are placeholders rather than finished tools. In contrast, [EncryptionPage](../gui/pages/encryption_page.py#L11-L333) is the real page today because it already builds the controls and calls the Hill functions.
+The real page classes are created in their own files. [EncryptionPage](../gui/pages/encryption_page.py) is the page that handles cipher controls and the active Caesar, Playfair, and Hill panels. [PasswordsPage](../gui/pages/passwords_page.py) implements the password defence controls (use cases 1 and 2, fast SHA-256 hash, salted PBKDF2 storage, lockout, and hand-off to attacks). [AttacksPage](../gui/pages/attacks_page.py) and [IntegrityPage](../gui/pages/integrity_page.py) are placeholder shells: they inherit from the base class and show a simple placeholder message. In contrast, [EncryptionPage](../gui/pages/encryption_page.py) is fully implemented with Caesar, Playfair, and Hill workflows where keys are typed manually by both sender and receiver, and [PasswordsPage](../gui/pages/passwords_page.py) provides a complete defence workflow.
 
 If someone wants to add a new page, there are only a few places to edit. First, add the new page class in a new file or in a page file. Second, register it in [PAGE_DEFINITIONS](../gui/app.py#L15-L19) inside [gui/app.py](../gui/app.py#L15-L19). Third, if the new page needs a shared title/placeholder style, it can inherit from [BasePage](../gui/pages/base_page.py#L8-L25). The pattern is simple: define the page class, add it to the app, then build widgets inside the page's own constructor.
 
@@ -86,15 +107,16 @@ The Hill page is the most complete part of the app. It is built by [_build_hill_
 Here is the sender side, control by control:
 
 - Key size: created in [_build_hill_panel()](../gui/pages/encryption_page.py#L99-L203) with a combobox that offers 2x2 and 3x3. The chosen value is stored in `self.hill_key_size_var` and the matrix cells are rebuilt by [_rebuild_hill_key_grid()](../gui/pages/encryption_page.py#L205-L224).
-- Matrix cells: each cell is an editable field created in [_rebuild_hill_key_grid()](../gui/pages/encryption_page.py#L205-L224). The current key is read back by [_current_hill_key()](../gui/pages/encryption_page.py#L226-L238).
-- Check key: the button is created in [_build_hill_panel()](../gui/pages/encryption_page.py#L99-L203), and its action calls [_check_hill_key()](../gui/pages/encryption_page.py#L264-L284). It validates the matrix using [hill.validate_key()](../crypto/hill.py#L123-L135).
-- Message: the large text box is created in [_build_hill_panel()](../gui/pages/encryption_page.py#L99-L203). The user writes a message there, for example HELP.
-- Encrypt: the button is created in [_build_hill_panel()](../gui/pages/encryption_page.py#L99-L203), and it calls [_encrypt_hill_message()](../gui/pages/encryption_page.py#L286-L300).
-- Ciphertext: the output field is a read-only entry created in [_build_hill_panel()](../gui/pages/encryption_page.py#L99-L203). The value is set by [_encrypt_hill_message()](../gui/pages/encryption_page.py#L286-L300).
-- Padding counter: the label is also created in the same area and is set by [_encrypt_hill_message()](../gui/pages/encryption_page.py#L286-L300). It shows how many X letters were added to finish the block.
-- Send to B: this button copies the ciphertext and padding count to Entity B and calls [_send_hill_cipher_to_b()](../gui/pages/encryption_page.py#L302-L309).
-- Entity B fields: the receiver side has a ciphertext entry, an optional padding field, and a result field, all created in [_build_hill_panel()](../gui/pages/encryption_page.py#L99-L203).
-- Decrypt: the button calls [_decrypt_hill_message()](../gui/pages/encryption_page.py#L311-L325).
+- Matrix cells: each cell is an editable field created in [_rebuild_hill_key_grid()](../gui/pages/encryption_page.py). Both sender and receiver grids start empty. Keys are read and strictly parsed by [_parse_hill_key()](../gui/pages/encryption_page.py) for the sender and [_parse_hill_receiver_key()](../gui/pages/encryption_page.py) for the receiver (the former `_current_hill_key()` helper was removed in favour of strict integer validation with red status messages for empty or non-integer cells).
+- Check key: button to validate the matrix using [hill.validate_key()](../crypto/hill.py#L123-L135). Both Entity A and Entity B have a Check key button.
+- Message: the large text box where the user writes a message to encrypt, for example HELP.
+- Encrypt: calls [_encrypt_hill_message()](../gui/pages/encryption_page.py).
+- Clear keys: button in the sender action row and top selector toolbar that clears all key fields across sender and receiver.
+- Ciphertext: the output field (read-only entry) set by [_encrypt_hill_message()](../gui/pages/encryption_page.py).
+- Padding counter: shows how many X letters were added to finish the block.
+- Send to B: this button copies only the ciphertext and padding count to Entity B via [_send_hill_cipher_to_b()](../gui/pages/encryption_page.py); it never copies keys.
+- Entity B fields: the receiver side has its own key size selector and matrix grid, initially empty (matching Caesar and Playfair having separate receiver key fields), as well as a ciphertext entry, optional padding field, Decrypt button, and result field.
+- Decrypt: calls [_decrypt_hill_message()](../gui/pages/encryption_page.py), which reads only Entity B's grid.
 - Result: the decrypted text shows up in the receiver result field.
 - Status line and colours: the status message starts in [_build_algorithm_selector()](../gui/pages/encryption_page.py#L44-L62) and is updated by [_set_status()](../gui/pages/encryption_page.py#L257-L262). If an error occurs, it turns red and sets the message text. If the action succeeds, it turns green and says the task completed.
 
@@ -126,7 +148,7 @@ Now look at the second example: BONJOUR with the key [[3, 2], [5, 7]]. This is t
 2. [hill.padding_length()](../crypto/hill.py#L137-L144) calculates that one X is needed.
 3. The ciphertext is created, and the app stores the padded count in the sender label.
 4. The user clicks Send to B. [_send_hill_cipher_to_b()](../gui/pages/encryption_page.py#L302-L309) copies the ciphertext and the padding number into Entity B’s fields.
-5. On the receiver side, the user can either leave the padding field empty or type 1 and then click Decrypt. The action calls [_decrypt_hill_message()](../gui/pages/encryption_page.py#L311-L325).
+5. On the receiver side, Entity B types B's own key into the receiver matrix grid (B's key size follows A's size by default, but B can also adjust it). The user can either leave the padding field empty or type 1 and then click Decrypt. The action calls [_decrypt_hill_message()](../gui/pages/encryption_page.py), which reads only B's matrix.
 6. [_decrypt_hill_message()](../gui/pages/encryption_page.py#L311-L325) reads the ciphertext and the optional pad length, then calls [hill.decrypt()](../crypto/hill.py#L186-L220).
 7. If the padding number is omitted, [hill.decrypt()](../crypto/hill.py#L186-L220) returns the decrypted text including the extra X. If the padding number is 1, it strips the last letter and returns BONJOUR.
 
@@ -209,14 +231,14 @@ Files to open for this section
 
 ## 11. Things that are not finished or could be better
 
-This project is a strong teaching shell, but it is not a complete security toolkit. A few parts are clearly placeholders today. The Caesar and Playfair screens are not implemented in [gui/pages/encryption_page.py](../gui/pages/encryption_page.py#L81-L97), and the other page classes show placeholder text in [gui/pages/passwords_page.py](../gui/pages/passwords_page.py#L8-L16), [gui/pages/attacks_page.py](../gui/pages/attacks_page.py#L8-L17), and [gui/pages/integrity_page.py](../gui/pages/integrity_page.py#L8-L17).
+This project is a strong teaching shell, but it is not a complete security toolkit. All three classical ciphers (Caesar, Playfair, and Hill) are fully implemented, wired into [gui/pages/encryption_page.py](../gui/pages/encryption_page.py), and tested against known test vectors. Password defence is also implemented in [passwords/](../passwords/) and [gui/pages/passwords_page.py](../gui/pages/passwords_page.py). The main unfinished areas belong to the attack side: password attack modules ([passwords/brute_force.py](../passwords/brute_force.py), [passwords/dictionary.py](../passwords/dictionary.py)), cipher attacks ([attacks/*.py](../attacks/)), and data integrity ([integrity/integrity.py](../integrity/integrity.py)), which remain stubs along with their respective GUI placeholder pages ([gui/pages/attacks_page.py](../gui/pages/attacks_page.py) and [gui/pages/integrity_page.py](../gui/pages/integrity_page.py)).
 
-The app also has a few rough edges. The status line is helpful, but it is simple: it only stores a message and flips between green and red. There is no formal logging system, no strict error model, and no full screen validation for every field. The project is clearly meant for teaching, not production use.
+The app also has a few rough edges. The status line is helpful, but it is simple: it only stores a message and flips between green and red. There is no formal logging system, no strict error model, and no full screen validation for every field. The project is clearly meant for teaching, not production use. The GUI also keeps key entry manual: no automatic or default key is injected into the page, which matches the project rule of explicit user-driven input.
 
 One practical issue is that [README.md](../README.md) is a little stale compared with the actual repository layout. It describes a top-level folder called ssad_toolkit in one place, while the project itself is already the root folder. That does not break the app, but it does make the project look slightly less tidy than it really is. The practical point is that this is a student toolkit and a team skeleton, not a final polished product.
 
 Files to open for this section
-- [gui/pages/encryption_page.py](../gui/pages/encryption_page.py#L81-L97) — the unfinished Caesar and Playfair screens.
+- [attacks/](../attacks/) and [integrity/](../integrity/) — attack and integrity stubs.
 - [gui/pages/passwords_page.py](../gui/pages/passwords_page.py#L8-L16) — placeholder password page.
 - [gui/pages/attacks_page.py](../gui/pages/attacks_page.py#L8-L17) — placeholder attacks page.
 - [gui/pages/integrity_page.py](../gui/pages/integrity_page.py#L8-L17) — placeholder integrity page.
@@ -250,3 +272,20 @@ Files to open for this section
 - [gui/app.py](../gui/app.py#L25-L190) — the app shell and switching logic.
 - [gui/pages/encryption_page.py](../gui/pages/encryption_page.py#L99-L325) — the Hill UI.
 - [crypto/hill.py](../crypto/hill.py#L16-L220) — the real algorithm.
+
+## 13. How the Passwords and defence side works
+
+The Passwords feature follows the exact same separation between screen and logic as the Hill panel: the screen in [gui/pages/passwords_page.py](../gui/pages/passwords_page.py#L14-L320) reads widgets and displays results, while all hashing, salting, verification, and lockout rules live in [passwords/generators.py](../passwords/generators.py#L10-L33) and [passwords/protection.py](../passwords/protection.py#L15-L180).
+
+Here is what happens when a user stores and tests a password:
+
+1. **Choosing a use case and validating**: [USE_CASES](../passwords/generators.py#L17-L23) defines the classroom password rules: Use case 1 uses alphabet `"01"` with length 3 ($N=2^3=8$); Use case 2 uses alphabet `"1234"` with length 4 ($N=4^4=256$); and Case 3 uses the 64-character alphabet (`a-z` = 0–25, `A-Z` = 26–51, `0-9` = 52–61, `+` = 62, `*` = 63) across three length options: use case 3 ($L=4$, $N=16,777,216$), use case 4 ($L=6$, $N=68,719,476,736$), and use case 5 ($L=8$, $N=281,474,976,710,656$). When the user clicks **Store**, [validate_password()](../passwords/protection.py#L21-L41) checks that the password is not empty, has the exact length, and uses only allowed characters.
+2. **Fast hash vs protected record**: If the password is valid, the page computes both a raw SHA-256 digest with [hash_fast()](../passwords/generators.py#L16-L20) and a salted PBKDF2-HMAC-SHA256 record with [hash_protected()](../passwords/protection.py#L41-L63). The protected record adds 16 random bytes of salt (`os.urandom(16)`) and runs `100,000` iterations so each guess is slow for an attacker, then immediately clears the password field so the plaintext password is never kept in memory.
+3. **Handing the target to the Attacks page**: The main window holds `self.shared` in [SSADToolkitApp.__init__()](../gui/app.py#L49). Storing a password writes `use_case`, `fast_hash`, and `record` into `shared`. The attacker's page can then pass either the fast hash string or the protected record dictionary into [make_checker()](../passwords/protection.py#L106-L122) to get back a single `check(candidate) -> bool` function, and iterate through candidates from [candidates()](../passwords/generators.py#L23-L33).
+4. **Logging in and lockout**: The right-hand **Log in** panel checks attempts against the protected record only using [verify_protected()](../passwords/protection.py#L94-L103), which compares digests in constant time with `hmac.compare_digest`. [Lockout](../passwords/protection.py#L125-L180) counts consecutive failures: after 5 wrong tries, it locks the login button for 30 seconds with a live 1-second countdown and refuses every attempt (even the right password) until the timer expires.
+
+Files to open for this section
+- [passwords/generators.py](../passwords/generators.py#L10-L33) — use cases, fast SHA-256 hash, and candidate generator.
+- [passwords/protection.py](../passwords/protection.py#L15-L180) — password validation, PBKDF2 hashing, constant-time check, `make_checker`, and `Lockout`.
+- [gui/pages/passwords_page.py](../gui/pages/passwords_page.py#L14-L320) — the Passwords page UI and countdown timer.
+- [tests/test_protection.py](../tests/test_protection.py#L1-L205) — unit tests for generators, validation, hashing, checker, and fake-clock lockout.

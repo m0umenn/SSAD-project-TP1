@@ -37,10 +37,10 @@ def main() -> None:
     entries = [
         ("Caesar encrypt", caesar.encrypt, "HELLO", 3),
         ("Caesar decrypt", caesar.decrypt, "KHOOR", 3),
-        ("Playfair encrypt", playfair.encrypt, "HELLO", "KEY"),
-        ("Playfair decrypt", playfair.decrypt, "KEY", "KEY"),
+        ("Playfair encrypt", playfair.encrypt, "HELLO", "MONARCHY"),
+        ("Playfair decrypt", playfair.decrypt, "CFSUPM", "MONARCHY"),
         ("Hill encrypt", hill.encrypt, "HELLO", [[1, 0], [0, 1]]),
-        ("Hill decrypt", hill.decrypt, "HELLO", [[1, 0], [0, 1]]),
+        ("Hill decrypt", hill.decrypt, "HELLOX", [[1, 0], [0, 1]]),
     ]
 
     # Password workloads in passwords/brute_force.py and passwords/dictionary.py will be benchmarked here later.
