@@ -13,16 +13,60 @@ from collections.abc import Callable
 from passwords.generators import USE_CASES
 from passwords.protection import make_checker
 
-# A short list of common/predictable passwords per use case, matching each
-# use case's alphabet and length so every word is actually a valid candidate.
+# A list of common/predictable passwords per use case, matching each use
+# case's alphabet and length so every word is actually a valid candidate.
 COMMON_PASSWORDS: dict[int, list[str]] = {
-    1: ["000", "111", "010", "101", "001", "100", "011", "110"],
-    2: ["1234", "4321", "1111", "2222", "3333", "4444", "1212", "2121", "1122", "4411"],
-    3: ["pass", "4321","Pass", "1234", "0000", "abcd", "P4ss", "A1b2", "qwer"],
-    4: ["123456", "qwerty", "abcdef", "Passw0", "P4ssw0", "000000", "111111", "aaaaaa"],
+    # Use case 1: 3 characters from "01" -> only 8 possible passwords exist,
+    # so this list is the entire search space.
+    1: ["000", "001", "010", "011", "100", "101", "110", "111"],
+
+    # Use case 2: 4 characters from "1234" (256 possible passwords).
+    2: [
+        # repeated digits
+        "1111", "2222", "3333", "4444",
+        # ascending / descending runs
+        "1234", "4321", "1231", "1324", "2143", "4123", "3412", "2341",
+        # simple pairs
+        "1212", "2121", "1313", "3131", "1414", "4141",
+        "2323", "3232", "2424", "4242", "3434", "4343",
+        # palindromes
+        "1221", "2112", "1331", "3113", "1441", "4114",
+        "2332", "3223", "2442", "4224", "3443", "4334",
+        # doubled digits
+        "1122", "2211", "1133", "3311", "1144", "4411",
+        "2233", "3322", "2244", "4422", "3344", "4433",
+    ],
+
+    # Use case 3: 4 characters from the full alphabet (letters, digits, +, *).
+    3: [
+        "pass", "Pass", "PASS", "abcd", "ABCD", "Abcd",
+        "1234", "4321", "0000", "1111", "2222",
+        "qwer", "Qwer", "asdf", "Asdf", "zxcv", "Zxcv",
+        "Aa11", "Bb22", "P4ss", "A1b2", "Ab12", "1Ab2",
+        "root", "user", "test", "Test", "demo", "Demo",
+        "Xx11", "+123", "12*4",
+    ],
+
+    # Use case 4: 6 characters from the full alphabet.
+    4: [
+        "123456", "654321", "111111", "121212", "000000",
+        "qwerty", "QWERTY", "asdfgh", "zxcvbn", "qazwsx",
+        "abc123", "123abc", "abcdef", "ABCDEF",
+        "monkey", "dragon", "shadow", "master", "letmei",
+        "iloveu", "freedo", "superm", "ninja1", "admin1",
+        "passwd", "Passw0", "P4ssw0", "root12", "test12",
+    ],
+
+    # Use case 5: 8 characters from the full alphabet.
     5: [
-        "password", "12345678", "qwertyui", "Passw0rd", "P4ssw0rd",
-        "letmein1", "iloveyou", "Pass+123",
+        "password", "PASSWORD", "Password", "12345678", "87654321",
+        "qwertyui", "QWERTYUI", "asdfghjk", "zxcvbnm1", "1qaz2wsx",
+        "iloveyou", "princess", "football", "baseball", "sunshine",
+        "superman", "trustno1", "letmein1", "welcome1", "starwars",
+        "whatever", "computer", "dragon12", "monkey12", "master12",
+        "shadow12", "batman12", "ginger12", "summer12", "winter12",
+        "Passw0rd", "P4ssw0rd", "Pass+123", "Pass*123", "admin123",
+        "root1234", "test1234", "11111111", "00000000", "12121212",
     ],
 }
 
