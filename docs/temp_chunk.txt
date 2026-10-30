@@ -1,0 +1,2 @@
+| `gui/pages/encryption_page.py` | Entity A (Sender) encryption UI | `EncryptionPage` | Cryptography/GUI maintainer |
+| `gui/pages/decryption_page.py` | Entity B (Receiver) decryption & verification UI | `DecryptionPage`, `DecryptionToplevel` | Cryptography/GUI maintainer |

@@ -6,13 +6,15 @@ import tkinter as tk
 from tkinter import ttk
 
 from gui.pages.attacks_page import AttacksPage
+from gui.pages.decryption_page import DecryptionPage, DecryptionToplevel
 from gui.pages.encryption_page import EncryptionPage
 from gui.pages.integrity_page import IntegrityPage
 from gui.pages.passwords_page import PasswordsPage
 
 
 PAGE_DEFINITIONS = [
-    ("Encryption / Decryption", EncryptionPage),
+    ("Encryption", EncryptionPage),
+    ("Decryption", DecryptionPage),
     ("Passwords", PasswordsPage),
     ("Attacks", AttacksPage),
     ("Authenticity / Integrity", IntegrityPage),
@@ -45,8 +47,9 @@ class SSADToolkitApp(tk.Tk):
         self._pages: dict[str, ttk.Frame] = {}
         self._buttons: dict[str, ttk.Button] = {}
         self._active_page_name: str | None = None
+        self._decryption_popup: DecryptionToplevel | None = None
 
-        self.shared = {"use_case": None, "fast_hash": None, "record": None}
+        self.shared = {"use_case": None, "cipher": None, "record": None}
         self._build_sidebar()
         self._build_pages()
         self._size_window_to_content()
@@ -182,6 +185,34 @@ class SSADToolkitApp(tk.Tk):
             button.configure(
                 style="SidebarActive.TButton" if page_name == active_page_name else "Sidebar.TButton"
             )
+
+    def send_ciphertext_to_decryption(self, ciphertext: str, padding: str = "") -> None:
+        """Transmit ciphertext from Entity A (Encryption) to Entity B (Decryption)."""
+        self.shared["pending_ciphertext"] = ciphertext
+        self.shared["pending_padding"] = padding
+
+        dec_page = self._pages.get("Decryption")
+        if dec_page is not None and hasattr(dec_page, "set_incoming_ciphertext"):
+            dec_page.set_incoming_ciphertext(ciphertext, padding)
+
+        if (
+            hasattr(self, "_decryption_popup")
+            and self._decryption_popup is not None
+            and self._decryption_popup.winfo_exists()
+        ):
+            self._decryption_popup.set_incoming_ciphertext(ciphertext, padding)
+
+    def open_separate_decryption_window(self) -> None:
+        """Open or focus a standalone OS window for Entity B (Decryption)."""
+        if (
+            hasattr(self, "_decryption_popup")
+            and self._decryption_popup is not None
+            and self._decryption_popup.winfo_exists()
+        ):
+            self._decryption_popup.lift()
+            self._decryption_popup.focus_force()
+            return
+        self._decryption_popup = DecryptionToplevel(self)
 
 
 def run_app() -> None:

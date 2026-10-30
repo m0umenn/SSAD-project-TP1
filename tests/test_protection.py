@@ -1,11 +1,14 @@
-"""Unit tests for password generators and protection mechanisms."""
+"""Unit tests for password generators, encryption-based protection, and lockout (Part 3)."""
 
 from __future__ import annotations
 
+import importlib
 import itertools
+import pkgutil
 import unittest
 
-from passwords import generators, protection
+import passwords
+from passwords import cipher_adapter, generators, protection
 
 
 class FakeClock:
@@ -22,13 +25,7 @@ class FakeClock:
 
 
 class TestGenerators(unittest.TestCase):
-    """Tests for passwords.generators."""
-
-    def test_hash_fast_known_vector(self) -> None:
-        self.assertEqual(
-            generators.hash_fast("abc"),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-        )
+    """Tests for passwords.generators candidate generation."""
 
     def test_candidates_use_case_1(self) -> None:
         items = list(generators.candidates("01", 3))
@@ -103,7 +100,7 @@ class TestProtectionValidation(unittest.TestCase):
             protection.validate_password("", 2)
         self.assertEqual(str(ctx.exception), "Password is empty.")
 
-        for wrong_len in ("123", "12", "12345"):
+        for wrong_len in ("123", "12345", "1"):
             with self.subTest(password=wrong_len):
                 with self.assertRaises(ValueError) as ctx:
                     protection.validate_password(wrong_len, 2)
@@ -112,7 +109,7 @@ class TestProtectionValidation(unittest.TestCase):
                     "Password must have exactly 4 characters.",
                 )
 
-        for bad_chars in ("1230", "1235", "abcd"):
+        for bad_chars in ("1235", "1230", "123a"):
             with self.subTest(password=bad_chars):
                 with self.assertRaises(ValueError) as ctx:
                     protection.validate_password(bad_chars, 2)
@@ -126,7 +123,7 @@ class TestProtectionValidation(unittest.TestCase):
             protection.validate_password("", 3)
         self.assertEqual(str(ctx.exception), "Password is empty.")
 
-        for wrong_len in ("abc", "ab", "abcde"):
+        for wrong_len in ("abc", "abcde", "a"):
             with self.subTest(password=wrong_len):
                 with self.assertRaises(ValueError) as ctx:
                     protection.validate_password(wrong_len, 3)
@@ -135,7 +132,7 @@ class TestProtectionValidation(unittest.TestCase):
                     "Password must have exactly 4 characters.",
                 )
 
-        for bad_chars in ("abc@", "ab 5", "Q#g4"):
+        for bad_chars in ("abc@", "ab c", "ab-d"):
             with self.subTest(password=bad_chars):
                 with self.assertRaises(ValueError) as ctx:
                     protection.validate_password(bad_chars, 3)
@@ -191,80 +188,131 @@ class TestProtectionValidation(unittest.TestCase):
                 )
 
 
-class TestProtectedHashingAndChecker(unittest.TestCase):
-    """Tests for hash_protected, verify_protected, and make_checker."""
+class TestEncryptedProtection(unittest.TestCase):
+    """Tests for encrypt-based protection, checker closure, and key isolation."""
 
-    FAST_ITERATIONS = 1000
+    PASSWORDS_BY_USE_CASE = {
+        1: ("101", "010"),
+        2: ("3214", "1234"),
+        3: ("abcd", "Zyx9"),
+        4: ("Abc123", "Zyx987"),
+        5: ("jK+73*Dd", "Pass1234"),
+    }
 
-    def test_round_trip_and_wrong_password(self) -> None:
-        record = protection.hash_protected("3214", iterations=self.FAST_ITERATIONS)
-        self.assertTrue(protection.verify_protected("3214", record))
-        self.assertFalse(protection.verify_protected("1111", record))
+    # Valid Hill keys (odd det mod m) for each use case
+    HILL_KEYS = {
+        1: [[1, 1, 0], [0, 1, 1], [0, 0, 1]],  # m=2, det=1
+        2: [[1, 2], [3, 3]],                      # m=4, det=1 mod 4
+        3: [[3, 2], [5, 7]],                      # m=64, det=11
+        4: [[1, 2, 3], [0, 1, 4], [5, 6, 0]],    # m=64, det=1
+        5: [[3, 2], [5, 7]],                      # m=64, det=11
+    }
 
-    def test_case_3_round_trip(self) -> None:
-        for pw, wrong in (("abcd", "Ab56"), ("Abc123", "secret"), ("jK+73*Dd", "Pass1234")):
-            with self.subTest(password=pw):
-                record = protection.hash_protected(pw, iterations=self.FAST_ITERATIONS)
-                self.assertTrue(protection.verify_protected(pw, record))
-                self.assertFalse(protection.verify_protected(wrong, record))
-                checker = protection.make_checker(record)
-                self.assertTrue(checker(pw))
-                self.assertFalse(checker(wrong))
+    def test_protect_and_decrypt_round_trip_caesar_every_use_case(self) -> None:
+        for use_case, (password, _) in self.PASSWORDS_BY_USE_CASE.items():
+            alphabet = cipher_adapter.get_alphabet(use_case)
+            m = len(alphabet)
+            for key in (1, 3):
+                if key >= m:
+                    continue
+                with self.subTest(use_case=use_case, key=key):
+                    record = protection.protect(password, use_case, cipher="caesar", key=key)
+                    self.assertEqual(record["use_case"], use_case)
+                    self.assertEqual(record["cipher"], "caesar")
+                    self.assertIsInstance(record["ciphertext"], str)
+                    self.assertIsInstance(record["params"], dict)
+                    self.assertIn("modulus", record["params"])
 
+                    decrypted = cipher_adapter.decrypt(
+                        record["ciphertext"], key=key, use_case=use_case, cipher="caesar"
+                    )
+                    self.assertEqual(decrypted, password)
 
-    def test_unique_salts_and_hashes(self) -> None:
-        r1 = protection.hash_protected("3214", iterations=self.FAST_ITERATIONS)
-        r2 = protection.hash_protected("3214", iterations=self.FAST_ITERATIONS)
-        self.assertNotEqual(r1["salt"], r2["salt"])
-        self.assertNotEqual(r1["hash"], r2["hash"])
+    def test_protect_and_decrypt_round_trip_hill_every_use_case(self) -> None:
+        for use_case, (password, _) in self.PASSWORDS_BY_USE_CASE.items():
+            key = self.HILL_KEYS[use_case]
+            with self.subTest(use_case=use_case):
+                record = protection.protect(password, use_case, cipher="hill", key=key)
+                self.assertEqual(record["cipher"], "hill")
+                self.assertIn("modulus", record["params"])
+                self.assertIn("block", record["params"])
 
-    def test_tampered_and_malformed_records(self) -> None:
-        record = protection.hash_protected("101", iterations=self.FAST_ITERATIONS)
+                decrypted = cipher_adapter.decrypt(
+                    record["ciphertext"], key=key, use_case=use_case, cipher="hill"
+                )
+                self.assertEqual(decrypted, password)
 
-        tampered_hash = dict(record)
-        orig_hash = str(record["hash"])
-        flipped = ("0" if orig_hash[0] != "0" else "1") + orig_hash[1:]
-        tampered_hash["hash"] = flipped
-        self.assertFalse(protection.verify_protected("101", tampered_hash))
+    def test_make_checker_accepts_right_password_rejects_wrong_caesar(self) -> None:
+        for use_case, (right_pw, wrong_pw) in self.PASSWORDS_BY_USE_CASE.items():
+            alphabet = cipher_adapter.get_alphabet(use_case)
+            m = len(alphabet)
+            key = 3 if m > 3 else 1
+            record = protection.protect(right_pw, use_case, cipher="caesar", key=key)
+            check = protection.make_checker(record, key)
 
-        tampered_salt = dict(record)
-        orig_salt = str(record["salt"])
-        tampered_salt["salt"] = ("0" if orig_salt[0] != "0" else "1") + orig_salt[1:]
-        self.assertFalse(protection.verify_protected("101", tampered_salt))
+            self.assertTrue(check(right_pw))
+            self.assertFalse(check(wrong_pw))
+            self.assertFalse(check(""))
 
-        malformed_records = [
-            "not a dict",
-            {},
-            {"salt": record["salt"], "iterations": self.FAST_ITERATIONS},
-            {"salt": "", "iterations": self.FAST_ITERATIONS, "hash": record["hash"]},
-            {"salt": "zz", "iterations": self.FAST_ITERATIONS, "hash": record["hash"]},
-            {"salt": record["salt"], "iterations": 0, "hash": record["hash"]},
-            {"salt": record["salt"], "iterations": -5, "hash": record["hash"]},
-            {"salt": record["salt"], "iterations": True, "hash": record["hash"]},
-            {"salt": record["salt"], "iterations": self.FAST_ITERATIONS, "hash": "short"},
-            {"salt": record["salt"], "iterations": self.FAST_ITERATIONS, "hash": "g" * 64},
-        ]
-        for bad in malformed_records:
-            with self.subTest(record=bad):
-                with self.assertRaises(ValueError) as ctx:
-                    protection.verify_protected("101", bad)  # type: ignore[arg-type]
-                self.assertEqual(str(ctx.exception), "Malformed record.")
+    def test_make_checker_accepts_right_password_rejects_wrong_hill(self) -> None:
+        for use_case, (right_pw, wrong_pw) in self.PASSWORDS_BY_USE_CASE.items():
+            key = self.HILL_KEYS[use_case]
+            record = protection.protect(right_pw, use_case, cipher="hill", key=key)
+            check = protection.make_checker(record, key)
 
-    def test_make_checker_hex_and_record_and_invalid(self) -> None:
-        fast_target = generators.hash_fast("101")
-        check_fast = protection.make_checker(fast_target)
-        self.assertTrue(check_fast("101"))
-        self.assertFalse(check_fast("000"))
+            self.assertTrue(check(right_pw))
+            self.assertFalse(check(wrong_pw))
+            self.assertFalse(check(""))
 
-        record_target = protection.hash_protected("3214", iterations=self.FAST_ITERATIONS)
-        check_prot = protection.make_checker(record_target)
-        self.assertTrue(check_prot("3214"))
-        self.assertFalse(check_prot("4444"))
+    def test_wrong_key_makes_correct_password_fail(self) -> None:
+        # Caesar: different shift makes checker fail
+        for use_case, (right_pw, _) in self.PASSWORDS_BY_USE_CASE.items():
+            alphabet = cipher_adapter.get_alphabet(use_case)
+            m = len(alphabet)
+            key = 3 if m > 4 else 1
+            wrong_key = (key % (m - 1)) + 1
+            if wrong_key == key:
+                wrong_key = 1 if key != 1 else 2
+            if wrong_key >= m:
+                continue
+            record = protection.protect(right_pw, use_case, cipher="caesar", key=key)
+            check_correct = protection.make_checker(record, key)
+            check_wrong = protection.make_checker(record, wrong_key)
+            self.assertTrue(check_correct(right_pw))
+            self.assertFalse(check_wrong(right_pw))
 
-        for bad_target in (None, 123, ["101"], "", "not-hex!", {"bad": "record"}):
-            with self.subTest(target=bad_target):
-                with self.assertRaises(ValueError):
-                    protection.make_checker(bad_target)  # type: ignore[arg-type]
+    def test_record_never_contains_the_key(self) -> None:
+        # Caesar: numeric key should not appear in record values
+        for key in (5, 11, 37):
+            record = protection.protect("aB1+", 3, cipher="caesar", key=key)
+            self.assertNotIn("key", record)
+            for k, v in record.items():
+                self.assertNotEqual(k, "key")
+                if isinstance(v, dict):
+                    self.assertNotIn("key", v)
+        # Hill: key matrix should not be stored
+        hill_key = [[3, 2], [5, 7]]
+        record = protection.protect("aB1+", 3, cipher="hill", key=hill_key)
+        self.assertNotIn("key", record)
+        for k in record:
+            self.assertNotEqual(k, "key")
+
+    def test_no_module_under_passwords_imports_hashlib(self) -> None:
+        for module_info in pkgutil.walk_packages(passwords.__path__, prefix="passwords."):
+            mod = importlib.import_module(module_info.name)
+            self.assertNotIn(
+                "hashlib",
+                mod.__dict__,
+                f"{module_info.name} imports hashlib!",
+            )
+            file_path = getattr(mod, "__file__", None)
+            if file_path:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    source = f.read()
+                    self.assertNotIn("import hashlib", source, f"hashlib imported in {module_info.name}")
+                    self.assertNotIn("from hashlib", source, f"hashlib imported in {module_info.name}")
+                    self.assertNotIn("import hmac", source, f"hmac imported in {module_info.name}")
+                    self.assertNotIn("from hmac", source, f"hmac imported in {module_info.name}")
 
 
 class TestLockout(unittest.TestCase):

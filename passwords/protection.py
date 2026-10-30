@@ -1,21 +1,22 @@
-"""Password validation, PBKDF2-HMAC-SHA256 storage, verification, and lockout."""
+"""Password validation, encryption-based protection, verification, and lockout.
+
+Part 3 protects passwords by encrypting them with ciphers instead of hashing.
+The secret key is never stored in the record or logged.
+"""
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import math
-import os
 import time
 from collections.abc import Callable
 from typing import Any
 
-from passwords.generators import USE_CASES, hash_fast
+from passwords import cipher_adapter
+from passwords.cipher_adapter import USE_CASE_CIPHER, block_size, get_alphabet
+from passwords.generators import USE_CASES
 
-ITERATIONS = 100_000
-SALT_BYTES = 16
-MAX_FAILURES = 5
-LOCK_SECONDS = 30
+MAX_FAILURES: int = 5
+LOCK_SECONDS: float = 30.0
 
 
 def validate_password(password: str, use_case: int) -> None:
@@ -40,96 +41,79 @@ def validate_password(password: str, use_case: int) -> None:
         raise ValueError(f"Only these characters are allowed: {alphabet}")
 
 
-def hash_protected(
-    password: str, iterations: int = ITERATIONS
-) -> dict[str, str | int]:
-    """Hash `password` with a random salt using PBKDF2-HMAC-SHA256.
+def protect(
+    password: str,
+    use_case: int,
+    cipher: str | None = None,
+    key: Any = None,
+) -> dict[str, Any]:
+    """Validate password for the use case, encrypt it, and return the protected record.
+
+    The secret key is never included in the record.
 
     Returns:
-        dict[str, str | int]: {"salt": hex str, "iterations": int, "hash": hex str}
+        dict[str, Any]: {
+            "use_case": int,
+            "cipher": str,
+            "ciphertext": str,
+            "params": {"modulus": m, "block": n}
+        }
     """
-    if not isinstance(password, str):
-        raise ValueError("Password must be a string.")
-    if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations <= 0:
-        raise ValueError("Iterations must be a positive integer.")
+    validate_password(password, use_case)
 
-    salt = os.urandom(SALT_BYTES)
-    derived = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt,
-        iterations,
-    )
+    # Resolve cipher name
+    if cipher is None or cipher == "":
+        cipher_name = USE_CASE_CIPHER.get(use_case, "hill")
+    else:
+        cipher_name = str(cipher).lower().strip()
+
+    # Parse key strictly
+    parsed_key = cipher_adapter.parse_key(key, use_case, cipher_name)
+
+    ciphertext = cipher_adapter.encrypt(password, parsed_key, use_case, cipher_name)
+
+    alphabet = get_alphabet(use_case)
+    m = len(alphabet)
+    n = block_size(use_case) if cipher_name == "hill" else 1
+
+    params: dict[str, Any] = {"modulus": m, "block": n}
+
     return {
-        "salt": salt.hex(),
-        "iterations": iterations,
-        "hash": derived.hex(),
+        "use_case": use_case,
+        "cipher": cipher_name,
+        "ciphertext": ciphertext,
+        "params": params,
     }
 
 
-def _parse_record(record: Any) -> tuple[bytes, int, str]:
-    """Validate a protected record dictionary and return (salt_bytes, iterations, hash_hex)."""
+def make_checker(record: dict[str, Any], key: Any) -> Callable[[str], bool]:
+    """Build a `check(candidate) -> bool` callable using the record and secret key.
+
+    Encrypts the candidate with `key` and compares it with `record['ciphertext']`.
+    The key stays strictly inside the closure.
+    """
     if not isinstance(record, dict):
         raise ValueError("Malformed record.")
-    if set(record.keys()) != {"salt", "iterations", "hash"}:
+    if "use_case" not in record or "ciphertext" not in record:
         raise ValueError("Malformed record.")
 
-    salt_hex = record.get("salt")
-    iterations = record.get("iterations")
-    hash_hex = record.get("hash")
+    use_case = int(record["use_case"])
+    cipher_name = str(record.get("cipher", USE_CASE_CIPHER.get(use_case, "hill")))
+    expected_ciphertext = str(record["ciphertext"])
 
-    if not isinstance(salt_hex, str) or not salt_hex:
-        raise ValueError("Malformed record.")
-    if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations <= 0:
-        raise ValueError("Malformed record.")
-    if not isinstance(hash_hex, str) or len(hash_hex) != 64:
-        raise ValueError("Malformed record.")
+    # Parse and close over the key — it never leaves this scope
+    parsed_key = cipher_adapter.parse_key(key, use_case, cipher_name)
 
-    try:
-        salt_bytes = bytes.fromhex(salt_hex)
-        bytes.fromhex(hash_hex)
-    except ValueError as exc:
-        raise ValueError("Malformed record.") from exc
-
-    if not salt_bytes:
-        raise ValueError("Malformed record.")
-
-    return salt_bytes, iterations, hash_hex.lower()
-
-
-def verify_protected(password: str, record: dict[str, Any]) -> bool:
-    """Verify `password` against a protected `record` using constant-time comparison."""
-    if not isinstance(password, str):
-        raise ValueError("Password must be a string.")
-    salt_bytes, iterations, expected_hash = _parse_record(record)
-    derived = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt_bytes,
-        iterations,
-    ).hex()
-    return hmac.compare_digest(derived, expected_hash)
-
-
-def make_checker(target: str | dict[str, Any]) -> Callable[[str], bool]:
-    """Build a `check(candidate) -> bool` callable for a fast hash or protected record."""
-    if isinstance(target, str):
-        stripped = target.strip()
-        if not stripped:
-            raise ValueError("Target hash string is empty.")
+    def check(candidate: str) -> bool:
+        if not isinstance(candidate, str):
+            return False
         try:
-            bytes.fromhex(stripped)
-        except ValueError as exc:
-            raise ValueError("Target string must be valid hexadecimal.") from exc
-        normalized_target = stripped.lower()
-        return lambda candidate: hmac.compare_digest(hash_fast(candidate), normalized_target)
+            cand_ct = cipher_adapter.encrypt(candidate, parsed_key, use_case, cipher_name)
+            return cand_ct == expected_ciphertext
+        except Exception:
+            return False
 
-    if isinstance(target, dict):
-        _parse_record(target)
-        snapshot = dict(target)
-        return lambda candidate: verify_protected(candidate, snapshot)
-
-    raise ValueError("Target must be a hex string or a protected record dict.")
+    return check
 
 
 class Lockout:
