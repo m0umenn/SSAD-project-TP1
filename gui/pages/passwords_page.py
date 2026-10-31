@@ -12,32 +12,6 @@ from passwords import cipher_adapter, generators, protection
 from passwords.cipher_adapter import block_size, get_alphabet
 
 
-# ---------------------------------------------------------------------------
-# Key format hints shown below the key field
-# ---------------------------------------------------------------------------
-
-def _key_hint(use_case: int, cipher: str) -> str:
-    """Return a short format hint for the key field."""
-    alphabet = get_alphabet(use_case)
-    m = len(alphabet)
-    spec = generators.USE_CASES[use_case]
-    length = int(spec["length"])
-    if cipher == "caesar":
-        if m == 2:
-            # Only one valid Caesar key exists: k=1. Flag it clearly.
-            return (
-                f"Only 1 valid key (k=1) \u2014 alphabet has {m} symbols so range [1, m-1] = {{1}}. "
-                f"Hill is strongly recommended for this use case."
-            )
-        return f"Integer from 1 to {m - 1}  (shift modulo {m})"
-    else:  # hill
-        n = block_size(use_case)
-        return (
-            f"{n}\u00d7{n} matrix = {n*n} integers 0\u2013{m - 1}, row by row  "
-            f"(block {n} divides password length {length})"
-        )
-
-
 class PasswordsPage(BasePage):
     """Defender-side password storage (by encryption) and login verification page."""
 
@@ -66,9 +40,6 @@ class PasswordsPage(BasePage):
         self.record_modulus_var = tk.StringVar(value="")
         self.record_block_var = tk.StringVar(value="")
         self.login_state_var = tk.StringVar(value="No password stored.")
-
-        self.store_key_hint_var = tk.StringVar(value="")
-        self.login_key_hint_var = tk.StringVar(value="")
 
         self._record: dict[str, Any] | None = None
         self._lockout: protection.Lockout | None = None
@@ -197,22 +168,16 @@ class PasswordsPage(BasePage):
             command=self._toggle_store_password_visibility,
         ).grid(row=0, column=1, sticky="w", padx=(8, 0))
 
-        # Secret encryption key
-        ttk.Label(frame, text="Secret encryption key:").grid(
-            row=2, column=0, sticky="w", pady=(0, 2)
-        )
-        self.store_key_hint_label = ttk.Label(
+        # Automatic key generation info label
+        ttk.Label(
             frame,
-            textvariable=self.store_key_hint_var,
+            text="Key: generated automatically and kept in a separate key file.",
             foreground="#5f6f7a",
             font=("Segoe UI", 9),
-        )
-        self.store_key_hint_label.grid(row=3, column=0, sticky="w", pady=(0, 2))
-        self.store_key_entry = ttk.Entry(frame, width=36)
-        self.store_key_entry.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        ).grid(row=2, column=0, sticky="w", pady=(0, 8))
 
         btn_row = ttk.Frame(frame)
-        btn_row.grid(row=5, column=0, sticky="ew", pady=(0, 10))
+        btn_row.grid(row=3, column=0, sticky="ew", pady=(0, 10))
         ttk.Button(btn_row, text="Store", command=self._store_password).pack(side="left")
         ttk.Button(btn_row, text="Send to Attacks", command=self._send_to_attacks).pack(
             side="left", padx=(8, 0)
@@ -220,11 +185,11 @@ class PasswordsPage(BasePage):
         ttk.Button(btn_row, text="Clear", command=self._clear_all).pack(side="left", padx=(8, 0))
 
         ttk.Label(frame, text="Protected record (key is never stored):").grid(
-            row=6, column=0, sticky="w", pady=(0, 4)
+            row=4, column=0, sticky="w", pady=(0, 4)
         )
 
         record_grid = ttk.Frame(frame)
-        record_grid.grid(row=7, column=0, sticky="ew")
+        record_grid.grid(row=5, column=0, sticky="ew")
         record_grid.columnconfigure(1, weight=1)
 
         for row_idx, (label, var) in enumerate([
@@ -259,24 +224,11 @@ class PasswordsPage(BasePage):
             command=self._toggle_login_password_visibility,
         ).grid(row=0, column=1, sticky="w", padx=(8, 0))
 
-        ttk.Label(frame, text="Secret decryption key:").grid(
-            row=2, column=0, sticky="w", pady=(0, 2)
-        )
-        self.login_key_hint_label = ttk.Label(
-            frame,
-            textvariable=self.login_key_hint_var,
-            foreground="#5f6f7a",
-            font=("Segoe UI", 9),
-        )
-        self.login_key_hint_label.grid(row=3, column=0, sticky="w", pady=(0, 2))
-        self.login_key_entry = ttk.Entry(frame, width=36)
-        self.login_key_entry.grid(row=4, column=0, sticky="ew", pady=(0, 8))
-
         self.login_button = ttk.Button(frame, text="Log in", command=self._login)
-        self.login_button.grid(row=5, column=0, sticky="w", pady=(0, 10))
+        self.login_button.grid(row=2, column=0, sticky="w", pady=(0, 10))
 
         ttk.Label(frame, text="Protection status:").grid(
-            row=6, column=0, sticky="w", pady=(0, 4)
+            row=3, column=0, sticky="w", pady=(0, 4)
         )
         self.login_state_label = ttk.Label(
             frame,
@@ -284,7 +236,7 @@ class PasswordsPage(BasePage):
             foreground="#52616f",
             font=("Segoe UI", 10, "bold"),
         )
-        self.login_state_label.grid(row=7, column=0, sticky="w")
+        self.login_state_label.grid(row=4, column=0, sticky="w")
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -295,14 +247,7 @@ class PasswordsPage(BasePage):
         self._on_cipher_changed()
 
     def _on_cipher_changed(self) -> None:
-        try:
-            uc = self._selected_use_case()
-            cipher = self._selected_cipher()
-            hint = _key_hint(uc, cipher)
-        except Exception:
-            hint = ""
-        self.store_key_hint_var.set(hint)
-        self.login_key_hint_var.set(hint)
+        pass
 
     def _toggle_store_password_visibility(self) -> None:
         self.store_password_entry.configure(show="" if self.show_store_pw_var.get() else "*")
@@ -349,9 +294,7 @@ class PasswordsPage(BasePage):
     def _clear_all(self) -> None:
         self._cancel_countdown()
         self.store_password_entry.delete(0, tk.END)
-        self.store_key_entry.delete(0, tk.END)
         self.attempt_entry.delete(0, tk.END)
-        self.login_key_entry.delete(0, tk.END)
         self.record_use_case_var.set("")
         self.record_cipher_var.set("")
         self.record_ciphertext_var.set("")
@@ -371,20 +314,17 @@ class PasswordsPage(BasePage):
 
     def _store_password(self) -> None:
         password = self.store_password_entry.get()
-        key_raw = self.store_key_entry.get()
         self.store_password_entry.delete(0, tk.END)
-        self.store_key_entry.delete(0, tk.END)
         try:
             use_case = self._selected_use_case()
             cipher = self._selected_cipher()
             protection.validate_password(password, use_case)
-            record = protection.protect(password, use_case, cipher=cipher, key=key_raw)
+            record = protection.protect(password, use_case, cipher=cipher)
         except ValueError as exc:
             self._set_error_status(str(exc))
             return
         finally:
             password = ""
-            key_raw = ""
 
         self._cancel_countdown()
         self._record = record
@@ -423,19 +363,13 @@ class PasswordsPage(BasePage):
 
     def _login(self) -> None:
         attempt = self.attempt_entry.get()
-        key_raw = self.login_key_entry.get()
         self.attempt_entry.delete(0, tk.END)
-        self.login_key_entry.delete(0, tk.END)
         try:
             if self._record is None or self._lockout is None:
                 self._set_error_status("Store a password first.")
                 return
 
-            # Determine cipher from record so the login key is parsed consistently
-            cipher = str(self._record.get("cipher", "hill"))
-            use_case = int(self._record["use_case"])
-            parsed_key = cipher_adapter.parse_key(key_raw, use_case, cipher)
-            check = protection.make_checker(self._record, parsed_key)
+            check = protection.make_checker(self._record)
             ok = check(attempt)
             granted = self._lockout.record(ok)
         except ValueError as exc:
@@ -445,7 +379,6 @@ class PasswordsPage(BasePage):
             return
         finally:
             attempt = ""
-            key_raw = ""
 
         if granted:
             self._cancel_countdown()
@@ -463,7 +396,7 @@ class PasswordsPage(BasePage):
             left = self._lockout.attempts_left()
             self.login_state_var.set(f"Attempts left: {left}")
             self.login_state_label.configure(foreground="#c92a2a")
-            self._set_error_status(f"Wrong password or key, {left} attempts left.")
+            self._set_error_status(f"Wrong password, {left} attempts left.")
 
     def _start_lock_countdown(self) -> None:
         self._cancel_countdown()

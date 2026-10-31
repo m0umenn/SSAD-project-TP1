@@ -12,6 +12,7 @@ from tkinter import ttk
 from typing import Any
 
 from crypto import caesar, hill, playfair
+from crypto.recipient_check import check_recipient_algorithm
 from gui.pages.base_page import BasePage
 
 
@@ -43,6 +44,10 @@ class DecryptionContent(ttk.Frame):
         self.hill_key_status_var = tk.StringVar(value="")
         self.hill_padding_var = tk.StringVar(value="")
         self.hill_key_entries: list[list[ttk.Entry]] = []
+
+        self._received_algorithm: str | None = None
+        self._programmatic_update: bool = False
+        self.ciphertext_var.trace_add("write", self._on_ciphertext_changed)
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(3, weight=1)
@@ -332,6 +337,10 @@ class DecryptionContent(ttk.Frame):
             self.hill_status_lbl.configure(foreground="#c92a2a")
             self._set_error_status(str(exc))
 
+    def _on_ciphertext_changed(self, *_) -> None:
+        if not self._programmatic_update:
+            self._received_algorithm = None
+
     def _decrypt_message(self) -> None:
         ct = self.ciphertext_var.get().strip()
         if not ct:
@@ -339,6 +348,11 @@ class DecryptionContent(ttk.Frame):
             return
 
         algo = self.algorithm_var.get()
+        if not check_recipient_algorithm(algo, self._received_algorithm):
+            self.result_var.set("")
+            self._set_error_status("You are not the intended recipient.")
+            return
+
         try:
             if algo == "Caesar":
                 key = self.caesar_key_var.get()
@@ -362,20 +376,26 @@ class DecryptionContent(ttk.Frame):
 
             self.result_var.set(pt)
             self._set_status("Decryption succeeded! Recipient identity verified.")
-        except Exception as exc:
+        except Exception:
             self.result_var.set("")
-            self._set_error_status(
-                f"Decryption failed: {exc}. Recipient unverified (wrong algorithm or key)."
-            )
+            self._set_error_status("You are not the intended recipient.")
 
     def _clear_ciphertext(self) -> None:
+        self._received_algorithm = None
         self.ciphertext_var.set("")
         self.result_var.set("")
         self._set_status("Ciphertext cleared.")
 
-    def set_incoming_ciphertext(self, ciphertext: str, padding: str = "") -> None:
+    def set_incoming_ciphertext(
+        self, ciphertext: str, padding: str = "", algorithm: str = ""
+    ) -> None:
         """Receive incoming ciphertext from Entity A without revealing algorithm or key."""
-        self.ciphertext_var.set(ciphertext)
+        self._received_algorithm = algorithm.lower().strip() if algorithm else None
+        self._programmatic_update = True
+        try:
+            self.ciphertext_var.set(ciphertext)
+        finally:
+            self._programmatic_update = False
         if padding:
             self.hill_padding_var.set(padding)
         self.result_var.set("")
@@ -412,8 +432,10 @@ class DecryptionPage(BasePage):
         self.content = DecryptionContent(self, is_toplevel=False)
         self.content.grid(row=1, column=0, sticky="nsew", padx=10, pady=6)
 
-    def set_incoming_ciphertext(self, ciphertext: str, padding: str = "") -> None:
-        self.content.set_incoming_ciphertext(ciphertext, padding)
+    def set_incoming_ciphertext(
+        self, ciphertext: str, padding: str = "", algorithm: str = ""
+    ) -> None:
+        self.content.set_incoming_ciphertext(ciphertext, padding, algorithm)
 
 
 class DecryptionToplevel(tk.Toplevel):
@@ -428,5 +450,7 @@ class DecryptionToplevel(tk.Toplevel):
         self.content = DecryptionContent(self, is_toplevel=True)
         self.content.pack(fill="both", expand=True, padx=12, pady=10)
 
-    def set_incoming_ciphertext(self, ciphertext: str, padding: str = "") -> None:
-        self.content.set_incoming_ciphertext(ciphertext, padding)
+    def set_incoming_ciphertext(
+        self, ciphertext: str, padding: str = "", algorithm: str = ""
+    ) -> None:
+        self.content.set_incoming_ciphertext(ciphertext, padding, algorithm)

@@ -114,6 +114,16 @@ For n=2: `adj([[a,b],[c,d]]) = [[d,-b],[-c,a]]`.
 For n=3: adjugate computed via cofactors.
 K⁻¹ = pow(det, -1, m) * adj(K)  mod m.
 
+### Automated Key Store (`passwords/key_store.py`)
+In the updated Part 3 architecture, the user **never types a key** for passwords. Keys are managed by an automated key store:
+- **Persistent Storage:** Default location is `data/secret_keys.json` (git-ignored). Can be overridden via the `SSAD_KEY_FILE` environment variable or `key_store.set_key_file(path)`.
+- **Per-(Cipher, Use-Case) Keys:** Entries are indexed by string keys such as `"hill:2"` or `"caesar:1"`.
+- **Generation:** On first use for a (cipher, use-case) pair, keys are drawn using Python's `secrets` module:
+  - Caesar: random shift integer in $[1, m-1]$.
+  - Hill: random $n \times n$ matrices until invertible modulo $m$ and non-identity, validated using `cipher_adapter.parse_key`.
+- **Atomic Persistence:** Files are written via temporary files and `os.replace` with best-effort `0o600` permissions.
+- **Integrity Validation:** If the key file exists but contains invalid JSON or corrupted entries, a `ValueError("Key file is corrupted")` is raised and the file is never overwritten.
+
 ### Protection Record Format
 The protected record is a dictionary that **strictly never contains the key**:
 ```python
@@ -129,20 +139,26 @@ The protected record is a dictionary that **strictly never contains the key**:
 ```
 
 ### Encryption & Verification Flow
-1. **Protection (`protect(password, use_case, cipher, key) -> record`)**:
+1. **Protection (`protect(password, use_case, cipher=None, key=None) -> record`)**:
    - Validates `password` against the use-case length and alphabet.
-   - Parses the key strictly via `cipher_adapter.parse_key(key, use_case, cipher)`.
+   - If `key` is `None`, automatically retrieves the persistent secret key from `key_store.get_key(use_case, cipher)`.
+   - If `key` is explicitly supplied, parses it strictly via `cipher_adapter.parse_key` (preserving backward compatibility and deterministic test vectors).
    - Encrypts the password using `cipher_adapter.encrypt(text, parsed_key, use_case, cipher)`.
    - Returns the record dictionary without the key.
-2. **Verification (`make_checker(record, key) -> check(candidate) -> bool`)**:
-   - Parses and closes over the key — the key never leaves the closure.
-   - `check(candidate)` encrypts the candidate and compares the ciphertext with `record["ciphertext"]`.
-   - Wrong key → wrong ciphertext → `False`.
+2. **Verification (`make_checker(record, key=None) -> check(candidate) -> bool`)**:
+   - If `key` is `None`, automatically loads the key from `key_store.get_key(use_case, cipher)`.
+   - Closes over the key inside the returned `check(candidate)` function — the key never escapes the closure.
+   - `check(candidate)` encrypts the candidate and compares the ciphertext with `record["ciphertext"]`, returning purely `True` or `False`.
 3. **Lockout Mechanism (`Lockout`)**:
    - Parameters: `MAX_FAILURES = 5`, `LOCK_SECONDS = 30`.
    - Injectable clock for deterministic testing.
    - After 5 consecutive failures, raises `ValueError("Locked. Try again in N s.")` until the window expires.
    - A successful login resets the failure counter to 0.
+
+### Threat Model: Encryption vs. One-Way Hashing
+- **Attacker with Record Only:** An adversary who exfiltrates only the database record must brute-force the cipher key (feasible for smaller key spaces, computationally prohibitive for Hill 3x3 over $m=64$) or attempt known-plaintext cryptanalysis.
+- **Attacker with Record and Key File:** If the attacker breaches the server filesystem and obtains `data/secret_keys.json`, symmetric encryption collapses: the attacker reverses all ciphertexts to plaintext immediately with zero cracking effort.
+- **Why Part 4 Uses Salted One-Way Hashing:** This fundamental limitation proves why modern password systems must use salted, iterated one-way hashes (PBKDF2/Argon2). With irreversible hashing, even a full server dump containing both records and salt does not allow direct decryption.
 
 ### Cipher Adapter (`passwords/cipher_adapter.py`)
 The **only** file that knows the password-section ciphers. Public API:
@@ -180,19 +196,32 @@ All hashing and integrity mechanisms are isolated in `integrity/` to be managed 
 
 ### Separate Windows for Encryption and Decryption (Security Layer)
 To ensure authenticity and security between communicating parties:
-1. **Entity A — Encryption Window (`gui/pages/encryption_page.py`)**:
+1. **Algorithm Label (`crypto/recipient_check.py`)**:
+   - Instead of modifying the ciphertext with an envelope marker, transmission uses an algorithm label (`"caesar"`, `"playfair"`, or `"hill"`).
+   - The algorithm label is public information sent alongside the ciphertext. The secret key stays secret and is never transmitted.
+   - When Entity B receives the message, the label is held internally (not displayed in the UI and not auto-selected).
+
+2. **Entity A — Encryption Window (`gui/pages/encryption_page.py`)**:
    - Sender selects algorithm (`Caesar`, `Playfair`, `Hill`), configures the key, enters plaintext, and clicks **Encrypt**.
-   - Clicking **"Send to Decryption Window (Entity B)"** transmits **ONLY the ciphertext** (and optional non-secret padding length for Hill).
-   - **Crucially, neither the algorithm choice nor the secret key is transmitted or revealed.**
+   - Encrypts the plain message directly (no prefix or marker is added; ciphertext length equals the exact padded message length).
+   - Clicking **"Send to Decryption Window (Entity B)"** transmits the ciphertext, the non-secret Hill padding length (for Hill), and the algorithm label (`"caesar"`, `"playfair"`, or `"hill"`).
+   - **Crucially, the secret key is never transmitted or revealed.**
    - Includes a button to pop open the Decryption window into an independent OS window.
 
-2. **Entity B — Decryption Window (`gui/pages/decryption_page.py`)**:
+3. **Entity B — Decryption Window (`gui/pages/decryption_page.py`)**:
    - Functions as an independent sidebar tab **and** can be popped out into a standalone floating window (`DecryptionToplevel`).
-   - Receives incoming ciphertext from Entity A without knowing which algorithm or key was used.
-   - **Recipient Authentication Mechanism**: The person operating the Decryption window **must independently select the algorithm from a dropdown menu and type the secret key by hand**.
-   - If the operator selects the wrong algorithm or enters an incorrect key, decryption fails or outputs garbled text, proving that unauthorized operators cannot read the message.
-   - Successful decryption confirms the recipient's identity and shared knowledge.
+   - Receives incoming ciphertext and stores the algorithm label internally without displaying it or altering the dropdown selection.
+   - **Recipient Verification**: The recipient must independently select the algorithm and enter the secret key.
+   - When the user clicks **Decrypt Message**:
+     - If an algorithm label was received and the user's selected algorithm differs from the label, the window does not decrypt and shows only the red message:
+       ```
+       "You are not the intended recipient."
+       ```
+       without revealing which algorithm was expected.
+     - If the algorithm matches, decryption proceeds. If decryption raises an error (invalid key format, non-invertible matrix, wrong key size), the same red message is shown.
+     - Because classical ciphers without a verification marker produce mathematical outputs under any valid shift/key, a wrong key with the correct algorithm is not detected (it produces garbled plaintext).
+     - If no label was received (e.g. ciphertext was pasted by hand), decryption proceeds with no label check. The stored label is automatically cleared whenever ciphertext is entered or changed by hand.
 
-3. **Other GUI Pages**:
-   - **`gui/pages/passwords_page.py`**: Password protection via cipher encryption with hand-typed keys and lockout enforcement.
-   - **`gui/pages/attacks_page.py`**: Cryptanalysis workbench for evaluating brute-force and dictionary attacks.
+4. **Other GUI Pages**:
+   - **`gui/pages/passwords_page.py`**: Password protection via cipher encryption with automated key generation and lockout enforcement. The user never types a key.
+   - **`gui/pages/attacks_page.py`**: Cryptanalysis workbench for evaluating brute-force, dictionary, and offline key-space attacks.

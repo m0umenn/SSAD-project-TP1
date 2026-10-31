@@ -181,7 +181,7 @@ class EncryptionPage(BasePage):
         if not ct:
             self._set_error_status("Encrypt a message first before sending.")
             return
-        self._transmit_ciphertext(ct)
+        self._transmit_ciphertext(ct, algorithm="caesar")
 
     # --- Playfair Panel ---
 
@@ -284,7 +284,7 @@ class EncryptionPage(BasePage):
         if not ct:
             self._set_error_status("Encrypt a message first before sending.")
             return
-        self._transmit_ciphertext(ct)
+        self._transmit_ciphertext(ct, algorithm="playfair")
 
     # --- Hill Panel ---
 
@@ -421,14 +421,14 @@ class EncryptionPage(BasePage):
         if not ct:
             self._set_error_status("Encrypt a message first before sending.")
             return
-        self._transmit_ciphertext(ct, padding=self.hill_padding_var.get())
+        self._transmit_ciphertext(ct, padding=self.hill_padding_var.get(), algorithm="hill")
 
     # --- Communication with Decryption Window ---
 
-    def _transmit_ciphertext(self, ciphertext: str, padding: str = "") -> None:
+    def _transmit_ciphertext(self, ciphertext: str, padding: str = "", algorithm: str = "") -> None:
         top: Any = self.winfo_toplevel()
         if hasattr(top, "send_ciphertext_to_decryption"):
-            top.send_ciphertext_to_decryption(ciphertext, padding)
+            top.send_ciphertext_to_decryption(ciphertext, padding, algorithm)
         self._set_status("Ciphertext sent to Entity B (Decryption window).")
 
     def _open_decryption_window(self) -> None:

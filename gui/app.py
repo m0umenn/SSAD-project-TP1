@@ -186,21 +186,24 @@ class SSADToolkitApp(tk.Tk):
                 style="SidebarActive.TButton" if page_name == active_page_name else "Sidebar.TButton"
             )
 
-    def send_ciphertext_to_decryption(self, ciphertext: str, padding: str = "") -> None:
+    def send_ciphertext_to_decryption(
+        self, ciphertext: str, padding: str = "", algorithm: str = ""
+    ) -> None:
         """Transmit ciphertext from Entity A (Encryption) to Entity B (Decryption)."""
         self.shared["pending_ciphertext"] = ciphertext
         self.shared["pending_padding"] = padding
+        self.shared["pending_algorithm"] = algorithm
 
         dec_page = self._pages.get("Decryption")
         if dec_page is not None and hasattr(dec_page, "set_incoming_ciphertext"):
-            dec_page.set_incoming_ciphertext(ciphertext, padding)
+            dec_page.set_incoming_ciphertext(ciphertext, padding, algorithm)
 
         if (
             hasattr(self, "_decryption_popup")
             and self._decryption_popup is not None
             and self._decryption_popup.winfo_exists()
         ):
-            self._decryption_popup.set_incoming_ciphertext(ciphertext, padding)
+            self._decryption_popup.set_incoming_ciphertext(ciphertext, padding, algorithm)
 
     def open_separate_decryption_window(self) -> None:
         """Open or focus a standalone OS window for Entity B (Decryption)."""

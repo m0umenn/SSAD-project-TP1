@@ -273,15 +273,30 @@ The code for the Hill panel is built in `_build_hill_panel()`. The matrix grid f
 
 #### `PasswordsPage`
 
-`gui/pages/passwords_page.py` is a placeholder page:
+`gui/pages/passwords_page.py` provides the password protection and verification interface:
+- **Automated Key Generation:** The user never types a secret key. Keys are automatically generated via `passwords/key_store.py` and saved to `data/secret_keys.json`.
+- **Informational Label:** Shows `"Key: generated automatically and kept in a separate key file."`
+- **Store & Login Panels:** Allows storing a password for any of the 5 use cases (using Hill or Caesar) and testing authentication with automatic lockout tracking (5 failures, 30 s lock).
+- **Target Sharing:** Pushes protected records (`{"use_case", "cipher", "ciphertext", "params"}`) to `app.shared` for testing in `AttacksPage` without ever exposing the key.
 
-```python
-super().__init__(
-    parent,
-    "Passwords",
-    "Not implemented yet - add your widgets here.",
-)
-```
+#### Recipient Algorithm Label Verification (`crypto/recipient_check.py`)
+
+Classical ciphers transmitted from `EncryptionPage` to `DecryptionPage` send an algorithm label:
+- The algorithm label (`"caesar"`, `"playfair"`, or `"hill"`) is sent as public metadata alongside the ciphertext and padding length. The key is never sent.
+- On receipt in Entity B's Decryption window, the label is stored internally without displaying it or changing the dropdown.
+- **Single Uniform Error:** If the recipient selects an algorithm that does not match the transmitted label, the window does not decrypt and shows:
+  ```
+  "You are not the intended recipient."
+  ```
+  in red. If the algorithm matches, decryption runs; if an invalid key or bad format causes decryption to fail, the same error is shown. A wrong key that produces valid characters is not detected by design.
+- If ciphertext is pasted by hand, the stored label is cleared and decryption runs with no algorithm check.
+
+#### Threat Model: Symmetric Password Encryption vs. Hashing
+
+- **Record-Only Attacker:** An attacker who steals the database record holding ciphertext and use-case parameters must brute-force the cipher keys across the use-case alphabet.
+- **Server/Key Compromise:** If an attacker obtains both the record and `data/secret_keys.json`, symmetric encryption offers zero defense: the attacker reverses every password immediately.
+- **Why Part 4 Uses One-Way Hashing:** This structural vulnerability illustrates why passwords in production systems are never encrypted, but hashed using salted, slow one-way key derivation functions (e.g. PBKDF2-HMAC-SHA256).
+
 
 It does not currently implement password widgets. There is only a `# TODO` comment.
 

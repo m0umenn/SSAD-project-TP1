@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from passwords import cipher_adapter
+from passwords import cipher_adapter, key_store
 from passwords.cipher_adapter import USE_CASE_CIPHER, block_size, get_alphabet
 from passwords.generators import USE_CASES
 
@@ -67,6 +67,9 @@ def protect(
     else:
         cipher_name = str(cipher).lower().strip()
 
+    if key is None:
+        key = key_store.get_key(use_case, cipher_name)
+
     # Parse key strictly
     parsed_key = cipher_adapter.parse_key(key, use_case, cipher_name)
 
@@ -86,7 +89,7 @@ def protect(
     }
 
 
-def make_checker(record: dict[str, Any], key: Any) -> Callable[[str], bool]:
+def make_checker(record: dict[str, Any], key: Any = None) -> Callable[[str], bool]:
     """Build a `check(candidate) -> bool` callable using the record and secret key.
 
     Encrypts the candidate with `key` and compares it with `record['ciphertext']`.
@@ -100,6 +103,9 @@ def make_checker(record: dict[str, Any], key: Any) -> Callable[[str], bool]:
     use_case = int(record["use_case"])
     cipher_name = str(record.get("cipher", USE_CASE_CIPHER.get(use_case, "hill")))
     expected_ciphertext = str(record["ciphertext"])
+
+    if key is None:
+        key = key_store.get_key(use_case, cipher_name)
 
     # Parse and close over the key — it never leaves this scope
     parsed_key = cipher_adapter.parse_key(key, use_case, cipher_name)
