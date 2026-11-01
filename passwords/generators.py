@@ -1,8 +1,7 @@
-"""Password use case definitions, fast hashing, and candidate generation."""
+"""Password use case definitions and candidate generation."""
 
 from __future__ import annotations
 
-import hashlib
 import itertools
 from collections.abc import Iterator
 
@@ -20,14 +19,6 @@ USE_CASES: dict[int, dict[str, str | int]] = {
     4: {"alphabet": CASE_3_ALPHABET, "length": 6},
     5: {"alphabet": CASE_3_ALPHABET, "length": 8},
 }
-
-
-
-def hash_fast(password: str) -> str:
-    """Return the SHA-256 hexadecimal digest of `password` (unprotected fast hash)."""
-    if not isinstance(password, str):
-        raise ValueError("Password must be a string.")
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 def candidates(alphabet: str, length: int) -> Iterator[str]:

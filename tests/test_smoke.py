@@ -1,4 +1,3 @@
-
 """Smoke tests for SSAD Toolkit."""
 
 from __future__ import annotations
@@ -23,19 +22,13 @@ class TestStubFunctions(unittest.TestCase):
     def test_crypto_stubs(self) -> None:
         from crypto import caesar, hill, playfair
 
-        stub_calls = [
-            (caesar.encrypt, ("HELLO", 3)),
-            (caesar.decrypt, ("KHOOR", 3)),
-            (caesar.validate_key, (3,)),
-            (playfair.encrypt, ("HELLO", "KEY")),
-            (playfair.decrypt, ("KEY", "KEY")),
-            (playfair.validate_key, ("KEY",)),
-        ]
+        self.assertEqual(caesar.encrypt("HELLO", 3), "KHOOR")
+        self.assertEqual(caesar.decrypt("KHOOR", 3), "HELLO")
+        self.assertTrue(caesar.validate_key(3))
+        self.assertFalse(caesar.validate_key(0))
 
-        for func, args in stub_calls:
-            with self.subTest(func=func.__name__):
-                with self.assertRaises(NotImplementedError):
-                    func(*args)
+        self.assertTrue(playfair.validate_key("KEY"))
+        self.assertEqual(playfair.decrypt(playfair.encrypt("HELLO", "KEY"), "KEY"), "HELLO")
 
         self.assertTrue(hill.validate_key([[1, 0], [0, 1]]))
         self.assertEqual(hill.encrypt("HELLO", [[1, 0], [0, 1]]), "HELLOX")
@@ -43,14 +36,8 @@ class TestStubFunctions(unittest.TestCase):
 
     def test_password_and_integrity_stubs(self) -> None:
         from integrity import integrity
-        from passwords import brute_force, dictionary, generators, protection
 
         stub_calls = [
-            (generators.get_sets, ()),
-            (brute_force.brute_force, ("target", "abc", 3)),
-            (dictionary.dictionary_attack, ("target", ["one", "two"])),
-            (protection.hash_password, ("secret",)),
-            (protection.verify_password, ("secret", "hash")),
             (integrity.hash_data, ("payload",)),
             (integrity.verify_data, ("payload", "digest")),
         ]

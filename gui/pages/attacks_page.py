@@ -1,23 +1,31 @@
-"""Attacks page: brute-force and dictionary attacks side by side, for comparison."""
+"""Attacks page: unprotected vs protected target, brute force and dictionary,
+side by side, to compare the real effectiveness of the protections (Part 3).
+"""
 
 from __future__ import annotations
 
+import random
 import threading
 import time
 import tkinter as tk
 from tkinter import ttk
-from typing import Any
+from typing import Any, Callable
 
 from gui.pages.base_page import BasePage
 from passwords import generators
 from passwords.brute_force import force_brute
 from passwords.dictionary import COMMON_PASSWORDS, dictionary_attack
-from passwords.protection import hash_protected, make_checker, verify_protected
+from passwords.protection import LOCK_SECONDS, MAX_FAILURES, Lockout, make_checker, make_plain_checker
 
-# Above this many candidates, running the attack live would freeze the GUI
-# for too long, so the button is disabled (the time estimate is still shown).
-MAX_FAST_SPACE = 50_000_000
-MAX_PROTECTED_SPACE = 100_000  # protected checks are ~100k times slower (PBKDF2)
+# A "Run" button is only enabled when the estimated worst-case duration for
+# that attack is below this cap, so clicking it never freezes the GUI for a
+# long time. Above the cap, only the estimated time is shown.
+LIVE_CAP_SECONDS = 60.0
+
+# Number of candidates used to measure the real speed of a checker, so the
+# estimate for the full space is based on an actual measurement, not a guess.
+# This benchmark NEVER goes through the Lockout - only the raw check speed.
+BENCHMARK_SAMPLE = 2_000
 
 
 def _format_duration(seconds: float) -> str:
@@ -35,8 +43,34 @@ def _format_duration(seconds: float) -> str:
     return f"{seconds / (365 * 86400):,.0f} years"
 
 
+def _benchmark_rate(check: Callable[[str], bool], alphabet: str, length: int) -> float:
+    """Measure how many checks per second `check` can sustain.
+
+    IMPORTANT: `check` must be a "raw" checker with no Lockout involved, or
+    this will block for a very long time (Lockout introduces real sleeps).
+    """
+    n = min(BENCHMARK_SAMPLE, len(alphabet) ** length)
+    sample = ["".join(random.choice(alphabet) for _ in range(length)) for _ in range(n)]
+    start = time.perf_counter()
+    for cand in sample:
+        check(cand)
+    elapsed = time.perf_counter() - start
+    if elapsed <= 0:
+        return 1_000_000.0  # avoid division by zero on a very fast checker
+    return n / elapsed
+
+
+def _lockout_time_estimate(attempts: int) -> float:
+    """Worst-case time (seconds) to make `attempts` online attempts through
+    the Lockout: every MAX_FAILURES wrong attempts costs one LOCK_SECONDS
+    wait. The encryption cost itself is negligible next to the 30 s wait.
+    """
+    cycles = attempts // MAX_FAILURES
+    return cycles * LOCK_SECONDS
+
+
 class AttacksPage(BasePage):
-    """Attacker-side page: brute-force vs. dictionary, against the stored target."""
+    """Two-column comparison: attack with no protection vs. attack with protection."""
 
     def __init__(self, parent: tk.Widget) -> None:
         super().__init__(parent, "Attacks", "")
@@ -49,63 +83,81 @@ class AttacksPage(BasePage):
         self.rowconfigure(1, weight=1)
 
         self.target_var = tk.StringVar(value="")
-
-        # Brute force side
-        self.bf_space_var = tk.StringVar(value="")
-        self.bf_est_fast_var = tk.StringVar(value="")
-        self.bf_est_protected_var = tk.StringVar(value="")
-        self.bf_result_var = tk.StringVar(value="")
-        self.bf_attempts_var = tk.StringVar(value="")
-        self.bf_time_var = tk.StringVar(value="")
-        self.bf_status_var = tk.StringVar(value="")
-
-        # Dictionary side
-        self.dict_size_var = tk.StringVar(value="")
-        self.dict_result_var = tk.StringVar(value="")
-        self.dict_attempts_var = tk.StringVar(value="")
-        self.dict_time_var = tk.StringVar(value="")
-        self.dict_status_var = tk.StringVar(value="")
-
         self._running = False
 
-        # One-time benchmark of how fast each kind of check runs on this
-        # machine, used to turn "N possible passwords" into an estimated time.
-        self._fast_rate = self._estimate_rate_fast()
-        self._protected_rate = self._estimate_rate_protected()
-
-        self.page_frame = ttk.Frame(self, padding=(10, 6))
-        self.page_frame.grid(row=1, column=0, sticky="nsew")
+        self.page_frame = self._build_scrollable_area()
         self.page_frame.columnconfigure(0, weight=1)
-        self.page_frame.rowconfigure(2, weight=1)
 
         self._build_intro_section()
         self._build_target_section()
-        self._build_comparison_section()
+        self._build_columns()
         self._refresh_target()
 
-    # --- one-time speed benchmark ---------------------------------------
+    # --- scrolling ----------------------------------------------------------
 
-    @staticmethod
-    def _estimate_rate_fast() -> float:
-        """Measure how many fast (SHA-256) checks this machine can do per second."""
-        sample = 2000
-        start = time.perf_counter()
-        for i in range(sample):
-            generators.hash_fast(str(i))
-        elapsed = time.perf_counter() - start
-        return sample / elapsed if elapsed > 0 else float("inf")
+    def _build_scrollable_area(self) -> ttk.Frame:
+        """Wrap the page content in a vertically scrollable canvas.
 
-    @staticmethod
-    def _estimate_rate_protected() -> float:
-        """Measure how many protected (PBKDF2) checks this machine can do per second."""
-        sample = 5
-        password = "benchmark"
-        record = hash_protected(password)
-        start = time.perf_counter()
-        for _ in range(sample):
-            verify_protected(password, record)
-        elapsed = time.perf_counter() - start
-        return sample / elapsed if elapsed > 0 else float("inf")
+        Returns the inner frame that the rest of the page should build into
+        (it behaves like a normal ttk.Frame, just scrollable when content
+        overflows the visible height).
+        """
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        container = ttk.Frame(self)
+        container.grid(row=1, column=0, sticky="nsew")
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
+        canvas.grid(row=0, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        inner = ttk.Frame(canvas, padding=(10, 6))
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_configure(_event: Any = None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event: Any) -> None:
+            # Make the inner frame match the canvas width so it doesn't
+            # stay fixed-width and force horizontal scrolling too.
+            canvas.itemconfigure(inner_id, width=event.width)
+
+        inner.bind("<Configure>", _on_inner_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_mousewheel(event: Any) -> None:
+            # Windows/macOS send delta in multiples of 120; Linux sends
+            # Button-4/Button-5 events instead (handled separately below).
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def _on_mousewheel_linux_up(_event: Any) -> None:
+            canvas.yview_scroll(-1, "units")
+
+        def _on_mousewheel_linux_down(_event: Any) -> None:
+            canvas.yview_scroll(1, "units")
+
+        def _bind_wheel(_event: Any = None) -> None:
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            canvas.bind_all("<Button-4>", _on_mousewheel_linux_up)
+            canvas.bind_all("<Button-5>", _on_mousewheel_linux_down)
+
+        def _unbind_wheel(_event: Any = None) -> None:
+            canvas.unbind_all("<MouseWheel>")
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
+
+        # Only scroll with the wheel while the pointer is over this page,
+        # so it doesn't steal scrolling from other pages/widgets.
+        canvas.bind("<Enter>", _bind_wheel)
+        canvas.bind("<Leave>", _unbind_wheel)
+
+        return inner
 
     # --- shared state -----------------------------------------------------
 
@@ -120,311 +172,321 @@ class AttacksPage(BasePage):
         intro = ttk.Frame(self.page_frame, padding=(0, 0, 0, 10))
         intro.grid(row=0, column=0, sticky="ew")
         intro.columnconfigure(0, weight=1)
-
         text = (
-            "Brute force tries every possible password in the search space, one by "
-            "one, until it finds a match - it always succeeds eventually, but can "
-            "take an impractical amount of time when the search space is large.\n"
-            "Dictionary attack only tries a short list of common/predictable "
-            "passwords - it is much faster, but only succeeds if the real password "
-            "happens to be in that list."
+            "Left: the password is stored in clear text, with no lockout - the "
+            "attacker compares each guess directly. Right: the password is "
+            "protected by encryption (Part 3) and login attempts are limited "
+            f"({MAX_FAILURES} failures -> {LOCK_SECONDS:.0f} s lockout). "
+            "A \"Run\" button is only clickable when the attack would finish "
+            f"in under {LIVE_CAP_SECONDS:.0f} s - otherwise rely on the "
+            "estimated time shown above it."
         )
-        ttk.Label(
-            intro,
-            text=text,
-            wraplength=900,
-            justify="left",
-            foreground="#52616f",
-        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(intro, text=text, wraplength=1000, justify="left", foreground="#52616f").grid(
+            row=0, column=0, sticky="w"
+        )
 
-    # --- layout: target ---------------------------------------------------
+    # --- layout: target -----------------------------------------------------
 
     def _build_target_section(self) -> None:
         frame = ttk.LabelFrame(self.page_frame, text="Target", padding=(10, 8))
         frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         frame.columnconfigure(0, weight=1)
-
-        ttk.Label(
-            frame, textvariable=self.target_var, wraplength=900, justify="left"
-        ).grid(row=0, column=0, sticky="w")
-
-        self.refresh_button = ttk.Button(
-            frame, text="Refresh target", command=self._refresh_target
+        ttk.Label(frame, textvariable=self.target_var, wraplength=1000, justify="left").grid(
+            row=0, column=0, sticky="w"
         )
+        self.refresh_button = ttk.Button(frame, text="Refresh target", command=self._refresh_target)
         self.refresh_button.grid(row=1, column=0, sticky="w", pady=(8, 0))
 
-    # --- layout: brute force vs dictionary, side by side -------------------
+    # --- layout: two columns -------------------------------------------------
 
-    def _build_comparison_section(self) -> None:
+    def _build_columns(self) -> None:
         main = ttk.Frame(self.page_frame)
         main.grid(row=2, column=0, sticky="nsew")
-        main.columnconfigure(0, weight=1, uniform="attack_sides")
+        main.columnconfigure(0, weight=1, uniform="cols")
         main.columnconfigure(1, weight=0)
-        main.columnconfigure(2, weight=1, uniform="attack_sides")
+        main.columnconfigure(2, weight=1, uniform="cols")
         main.rowconfigure(0, weight=1)
 
-        bf_frame = ttk.LabelFrame(main, text="Brute force", padding=(10, 8))
-        bf_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        bf_frame.columnconfigure(0, weight=1)
+        unprot_frame = ttk.LabelFrame(main, text="Without protection (plain text)", padding=(10, 8))
+        unprot_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        unprot_frame.columnconfigure(0, weight=1)
 
         ttk.Separator(main, orient="vertical").grid(row=0, column=1, sticky="ns", padx=(0, 6))
 
-        dict_frame = ttk.LabelFrame(main, text="Dictionary attack", padding=(10, 8))
-        dict_frame.grid(row=0, column=2, sticky="nsew")
-        dict_frame.columnconfigure(0, weight=1)
+        prot_frame = ttk.LabelFrame(
+            main, text="With protection (encryption + lockout)", padding=(10, 8)
+        )
+        prot_frame.grid(row=0, column=2, sticky="nsew")
+        prot_frame.columnconfigure(0, weight=1)
 
-        self._build_brute_force_side(bf_frame)
-        self._build_dictionary_side(dict_frame)
+        self.unprot = self._build_side(unprot_frame, "unprotected")
+        self.prot = self._build_side(prot_frame, "protected")
 
-    def _build_brute_force_side(self, parent: ttk.LabelFrame) -> None:
+    def _build_side(self, parent: ttk.LabelFrame, side_id: str) -> dict[str, Any]:
+        """Build one side (brute force + dictionary) and return its widget vars."""
+        vars_: dict[str, Any] = {}
+
         ttk.Label(parent, text="Search space:").grid(row=0, column=0, sticky="w")
-        ttk.Entry(parent, textvariable=self.bf_space_var, state="readonly").grid(
-            row=1, column=0, sticky="ew", pady=(0, 8)
+        vars_["space"] = tk.StringVar(value="")
+        ttk.Entry(parent, textvariable=vars_["space"], state="readonly").grid(
+            row=1, column=0, sticky="ew", pady=(0, 6)
         )
 
-        ttk.Label(parent, text="Estimated time (fast hash):").grid(row=2, column=0, sticky="w")
-        ttk.Entry(parent, textvariable=self.bf_est_fast_var, state="readonly").grid(
-            row=3, column=0, sticky="ew", pady=(0, 4)
+        # --- Brute force controls ---
+        ttk.Label(parent, text="Brute force", font=("", 10, "bold")).grid(
+            row=2, column=0, sticky="w"
         )
-
-        ttk.Label(parent, text="Estimated time (protected record):").grid(
-            row=4, column=0, sticky="w"
+        ttk.Label(parent, text="Estimated time (worst case, full space):").grid(
+            row=3, column=0, sticky="w"
         )
-        ttk.Entry(parent, textvariable=self.bf_est_protected_var, state="readonly").grid(
-            row=5, column=0, sticky="ew", pady=(0, 8)
+        vars_["bf_estimate"] = tk.StringVar(value="")
+        ttk.Label(parent, textvariable=vars_["bf_estimate"], foreground="#52616f").grid(
+            row=4, column=0, sticky="w", pady=(0, 4)
         )
-
-        btn_row = ttk.Frame(parent)
-        btn_row.grid(row=6, column=0, sticky="ew", pady=(0, 6))
-        self.bf_fast_button = ttk.Button(
-            btn_row, text="Run (fast hash)", command=lambda: self._start_attack("fast", "brute")
+        vars_["bf_button"] = ttk.Button(
+            parent, text="Run brute force", command=lambda: self._start_attack(side_id, "brute")
         )
-        self.bf_fast_button.pack(side="left")
-        self.bf_protected_button = ttk.Button(
-            btn_row,
-            text="Run (protected record)",
-            command=lambda: self._start_attack("protected", "brute"),
-        )
-        self.bf_protected_button.pack(side="left", padx=(8, 0))
-
-        self.bf_status_label = ttk.Label(parent, textvariable=self.bf_status_var, foreground="#0f5132")
-        self.bf_status_label.grid(row=7, column=0, sticky="w", pady=(0, 8))
-
-        rows = [
-            ("Password found:", self.bf_result_var),
-            ("Attempts:", self.bf_attempts_var),
-            ("Elapsed time:", self.bf_time_var),
-        ]
-        for i, (label_text, var) in enumerate(rows):
-            ttk.Label(parent, text=label_text).grid(row=8 + i, column=0, sticky="w", pady=(0, 2))
-            ttk.Entry(parent, textvariable=var, state="readonly").grid(
-                row=8 + i, column=0, sticky="ew"
+        vars_["bf_button"].grid(row=5, column=0, sticky="w", pady=(2, 2))
+        vars_["bf_status"] = tk.StringVar(value="")
+        vars_["bf_status_label"] = ttk.Label(parent, textvariable=vars_["bf_status"], foreground="#0f5132")
+        vars_["bf_status_label"].grid(row=6, column=0, sticky="w", pady=(0, 2))
+        vars_["bf_result"] = tk.StringVar(value="")
+        vars_["bf_attempts"] = tk.StringVar(value="")
+        vars_["bf_time"] = tk.StringVar(value="")
+        for i, (label, key) in enumerate(
+            [("Found:", "bf_result"), ("Attempts:", "bf_attempts"), ("Real time:", "bf_time")]
+        ):
+            ttk.Label(parent, text=label).grid(row=7 + i, column=0, sticky="w")
+            ttk.Entry(parent, textvariable=vars_[key], state="readonly").grid(
+                row=7 + i, column=0, sticky="ew"
             )
-        # (labels and entries share rows visually above; keep a clean stack)
 
-    def _build_dictionary_side(self, parent: ttk.LabelFrame) -> None:
-        ttk.Label(parent, text="Dictionary size:").grid(row=0, column=0, sticky="w")
-        ttk.Entry(parent, textvariable=self.dict_size_var, state="readonly").grid(
-            row=1, column=0, sticky="ew", pady=(0, 8)
+        # --- Dictionary controls ---
+        ttk.Separator(parent, orient="horizontal").grid(row=10, column=0, sticky="ew", pady=8)
+        ttk.Label(parent, text="Dictionary attack", font=("", 10, "bold")).grid(
+            row=11, column=0, sticky="w"
         )
-
-        # Spacer rows so both columns' buttons line up visually.
-        ttk.Label(parent, text="").grid(row=2, column=0)
-        ttk.Label(parent, text="").grid(row=3, column=0)
-        ttk.Label(parent, text="").grid(row=4, column=0)
-        ttk.Label(parent, text="").grid(row=5, column=0, pady=(0, 8))
-
-        btn_row = ttk.Frame(parent)
-        btn_row.grid(row=6, column=0, sticky="ew", pady=(0, 6))
-        self.dict_fast_button = ttk.Button(
-            btn_row, text="Run (fast hash)", command=lambda: self._start_attack("fast", "dictionary")
+        vars_["dict_size"] = tk.StringVar(value="")
+        ttk.Label(parent, textvariable=vars_["dict_size"], foreground="#52616f").grid(
+            row=12, column=0, sticky="w"
         )
-        self.dict_fast_button.pack(side="left")
-        self.dict_protected_button = ttk.Button(
-            btn_row,
-            text="Run (protected record)",
-            command=lambda: self._start_attack("protected", "dictionary"),
+        vars_["dict_estimate"] = tk.StringVar(value="")
+        ttk.Label(parent, textvariable=vars_["dict_estimate"], foreground="#52616f").grid(
+            row=13, column=0, sticky="w", pady=(0, 4)
         )
-        self.dict_protected_button.pack(side="left", padx=(8, 0))
-
-        self.dict_status_label = ttk.Label(
-            parent, textvariable=self.dict_status_var, foreground="#0f5132"
+        vars_["dict_button"] = ttk.Button(
+            parent, text="Run dictionary", command=lambda: self._start_attack(side_id, "dictionary")
         )
-        self.dict_status_label.grid(row=7, column=0, sticky="w", pady=(0, 8))
-
-        rows = [
-            ("Password found:", self.dict_result_var),
-            ("Attempts:", self.dict_attempts_var),
-            ("Elapsed time:", self.dict_time_var),
-        ]
-        for i, (label_text, var) in enumerate(rows):
-            ttk.Label(parent, text=label_text).grid(row=8 + i, column=0, sticky="w", pady=(0, 2))
-            ttk.Entry(parent, textvariable=var, state="readonly").grid(
-                row=8 + i, column=0, sticky="ew"
+        vars_["dict_button"].grid(row=14, column=0, sticky="w", pady=(2, 2))
+        vars_["dict_status"] = tk.StringVar(value="")
+        vars_["dict_status_label"] = ttk.Label(
+            parent, textvariable=vars_["dict_status"], foreground="#0f5132"
+        )
+        vars_["dict_status_label"].grid(row=15, column=0, sticky="w", pady=(0, 2))
+        vars_["dict_result"] = tk.StringVar(value="")
+        vars_["dict_attempts"] = tk.StringVar(value="")
+        vars_["dict_time"] = tk.StringVar(value="")
+        for i, (label, key) in enumerate(
+            [("Found:", "dict_result"), ("Attempts:", "dict_attempts"), ("Real time:", "dict_time")]
+        ):
+            ttk.Label(parent, text=label).grid(row=16 + i, column=0, sticky="w")
+            ttk.Entry(parent, textvariable=vars_[key], state="readonly").grid(
+                row=16 + i, column=0, sticky="ew"
             )
+
+        return vars_
+
+    # --- checkers ---------------------------------------------------------
+
+    def _build_raw_checkers(self, record: dict, password: str | None):
+        """Return (plain_check, encrypted_check_no_lockout).
+
+        Both are safe to benchmark: no sleeping, no Lockout involved.
+        """
+        plain_check = make_plain_checker(password) if password else None
+        encrypted_check = make_checker(record)
+        return plain_check, encrypted_check
+
+    def _make_live_protected_check(self, record: dict) -> Callable[[str], bool]:
+        """Build a FRESH protected checker (encryption + real Lockout) for an
+        actual live run. A new Lockout is created each time so previous runs
+        don't leave the account locked.
+        """
+        enc_check = make_checker(record)
+        lockout = Lockout()
+
+        def check(candidate: str) -> bool:
+            ok = enc_check(candidate)
+            try:
+                return lockout.record(ok)
+            except ValueError:
+                time.sleep(lockout.remaining())
+                ok = enc_check(candidate)
+                return lockout.record(ok)
+
+        return check
 
     # --- target handling ------------------------------------------------
 
     def _refresh_target(self) -> None:
         shared = self._shared()
         use_case = shared.get("use_case")
-        fast_hash = shared.get("fast_hash")
         record = shared.get("record")
+        password = shared.get("password")  # plain-text password, if the app kept it
 
-        if use_case is None or fast_hash is None or record is None:
+        if use_case is None or record is None:
             self.target_var.set(
                 "No target yet. Go to the Passwords page, store a password, "
                 "then click \"Send to Attacks\"."
             )
-            self.bf_fast_button.configure(state="disabled")
-            self.bf_protected_button.configure(state="disabled")
-            self.dict_fast_button.configure(state="disabled")
-            self.dict_protected_button.configure(state="disabled")
-            self.bf_space_var.set("")
-            self.bf_est_fast_var.set("")
-            self.bf_est_protected_var.set("")
-            self.dict_size_var.set("")
+            for side in (self.unprot, self.prot):
+                side["bf_button"].configure(state="disabled")
+                side["dict_button"].configure(state="disabled")
             return
 
         spec = generators.USE_CASES[use_case]
         alphabet = str(spec["alphabet"])
         length = int(spec["length"])
         total = len(alphabet) ** length
+        cipher = record.get("cipher", "cipher")
+        ciphertext = record.get("ciphertext", "")
 
         self.target_var.set(
             f"Use case {use_case}: {length} characters from an alphabet of "
             f"{len(alphabet)} symbols -> {total:,} possible passwords.\n"
-            f"Stolen fast hash: {fast_hash}"
+            f"Protected ciphertext ({cipher}): {ciphertext}"
         )
-
-        # --- brute force side ---
-        self.bf_space_var.set(f"{total:,} possible passwords")
-        self.bf_est_fast_var.set(_format_duration(total / self._fast_rate))
-        self.bf_est_protected_var.set(_format_duration(total / self._protected_rate))
-
-        self.bf_fast_button.configure(state="normal" if total <= MAX_FAST_SPACE else "disabled")
-        self.bf_protected_button.configure(
-            state="normal" if total <= MAX_PROTECTED_SPACE else "disabled"
-        )
-
-        if total > MAX_FAST_SPACE:
-            self._set_bf_status(
-                "Search space too large to run live - see the estimated time above.", is_error=True
+        if password is None:
+            self.target_var.set(
+                self.target_var.get()
+                + "\nNote: plain-text password not available - the 'without "
+                "protection' column cannot run. Pass it in shared['password']."
             )
-        else:
-            self._set_bf_status("Target ready.")
 
-        # --- dictionary side ---
-        words = COMMON_PASSWORDS.get(use_case, [])
-        coverage = (len(words) / total * 100) if total else 0.0
-        self.dict_size_var.set(f"{len(words)} words ({coverage:.4f}% of the search space)")
-        self.dict_fast_button.configure(state="normal")
-        self.dict_protected_button.configure(state="normal")
-        self._set_dict_status("Target ready.")
+        plain_check, encrypted_check = self._build_raw_checkers(record, password)
+        words = [
+            w for w in COMMON_PASSWORDS.get(use_case, [])
+            if len(w) == length and all(c in alphabet for c in w)
+        ]
+
+        self._current = {
+            "use_case": use_case,
+            "alphabet": alphabet,
+            "length": length,
+            "total": total,
+            "record": record,
+            "plain_check": plain_check,
+            "words_count": len(words),
+        }
+
+        # --- unprotected side ---
+        self.unprot["space"].set(f"{total:,} possible passwords")
+        self.unprot["dict_size"].set(f"Dictionary: {len(words)} words")
+        if plain_check is None:
+            self.unprot["bf_estimate"].set("n/a (no plain password)")
+            self.unprot["dict_estimate"].set("n/a (no plain password)")
+            self.unprot["bf_button"].configure(state="disabled")
+            self.unprot["dict_button"].configure(state="disabled")
+        else:
+            rate = _benchmark_rate(plain_check, alphabet, length)
+            bf_seconds = total / rate
+            dict_seconds = len(words) / rate if words else 0.0
+            self.unprot["bf_estimate"].set(_format_duration(bf_seconds))
+            self.unprot["dict_estimate"].set(_format_duration(dict_seconds))
+            self.unprot["bf_button"].configure(
+                state="normal" if bf_seconds <= LIVE_CAP_SECONDS else "disabled"
+            )
+            self.unprot["dict_button"].configure(
+                state="normal" if dict_seconds <= LIVE_CAP_SECONDS else "disabled"
+            )
+
+        # --- protected side ---
+        self.prot["space"].set(f"{total:,} possible passwords")
+        self.prot["dict_size"].set(f"Dictionary: {len(words)} words")
+        bf_lockout_seconds = _lockout_time_estimate(total)
+        dict_lockout_seconds = _lockout_time_estimate(len(words))
+        self.prot["bf_estimate"].set(
+            f"{_format_duration(bf_lockout_seconds)} (lockout-limited)"
+        )
+        self.prot["dict_estimate"].set(
+            f"{_format_duration(dict_lockout_seconds)} (lockout-limited)"
+        )
+        self.prot["bf_button"].configure(
+            state="normal" if bf_lockout_seconds <= LIVE_CAP_SECONDS else "disabled"
+        )
+        self.prot["dict_button"].configure(
+            state="normal" if dict_lockout_seconds <= LIVE_CAP_SECONDS else "disabled"
+        )
 
     # --- running the attacks --------------------------------------------
 
-    def _start_attack(self, kind: str, method: str) -> None:
-        if self._running:
+    def _start_attack(self, side_id: str, method: str) -> None:
+        if self._running or not hasattr(self, "_current"):
             return
 
-        shared = self._shared()
-        use_case = shared.get("use_case")
-        fast_hash = shared.get("fast_hash")
-        record = shared.get("record")
-        if use_case is None or fast_hash is None or record is None:
-            self._set_error_both("No target. Store a password on the Passwords page first.")
+        side = self.unprot if side_id == "unprotected" else self.prot
+        if side_id == "unprotected":
+            check = self._current["plain_check"]
+        else:
+            check = self._make_live_protected_check(self._current["record"])
+        if check is None:
             return
 
-        target = fast_hash if kind == "fast" else record
-        target_label = "fast hash" if kind == "fast" else "protected record"
+        use_case = self._current["use_case"]
+        status_key = "bf_status" if method == "brute" else "dict_status"
+        self._set_status(side, status_key, f"Running {method}...")
 
         self._running = True
-        self.bf_fast_button.configure(state="disabled")
-        self.bf_protected_button.configure(state="disabled")
-        self.dict_fast_button.configure(state="disabled")
-        self.dict_protected_button.configure(state="disabled")
+        for s in (self.unprot, self.prot):
+            s["bf_button"].configure(state="disabled")
+            s["dict_button"].configure(state="disabled")
         self.refresh_button.configure(state="disabled")
 
-        if method == "brute":
-            self._set_bf_status(f"Running brute force against the {target_label}...")
-            self.bf_result_var.set("")
-            self.bf_attempts_var.set("")
-            self.bf_time_var.set("")
-        else:
-            self._set_dict_status(f"Running dictionary attack against the {target_label}...")
-            self.dict_result_var.set("")
-            self.dict_attempts_var.set("")
-            self.dict_time_var.set("")
-
         thread = threading.Thread(
-            target=self._run_attack_thread, args=(use_case, target, method), daemon=True
+            target=self._run_attack_thread, args=(use_case, check, method, side_id), daemon=True
         )
         thread.start()
 
-    def _run_attack_thread(
-        self, use_case: int, target: str | dict[str, Any], method: str
-    ) -> None:
+    def _run_attack_thread(self, use_case: int, check, method: str, side_id: str) -> None:
         try:
-            check = make_checker(target)
             start = time.perf_counter()
             if method == "brute":
                 found, attempts = force_brute(use_case, check)
             else:
                 found, attempts = dictionary_attack(use_case, check)
             elapsed = time.perf_counter() - start
-        except Exception as exc:  # noqa: BLE001 - surface any error to the GUI
-            self.after(0, self._attack_failed, str(exc), method)
+        except Exception as exc:  # noqa: BLE001 - surface errors to the GUI
+            self.after(0, self._attack_failed, side_id, method, str(exc))
             return
-        self.after(0, self._attack_done, found, attempts, elapsed, method)
+        self.after(0, self._attack_done, side_id, method, found, attempts, elapsed)
 
-    def _attack_done(
-        self, found: str | None, attempts: int, elapsed: float, method: str
-    ) -> None:
+    def _attack_done(self, side_id: str, method: str, found, attempts: int, elapsed: float) -> None:
         self._running = False
-        self._refresh_target()
-
-        if method == "brute":
-            self.bf_attempts_var.set(f"{attempts:,}")
-            self.bf_time_var.set(_format_duration(elapsed))
-            if found:
-                self.bf_result_var.set(found)
-                self._set_bf_status(f"Password recovered in {attempts:,} attempts ({elapsed:.3f} s).")
-            else:
-                self.bf_result_var.set("(not found)")
-                self._set_bf_status(f"Not found after {attempts:,} attempts.", is_error=True)
+        side = self.unprot if side_id == "unprotected" else self.prot
+        prefix = "bf" if method == "brute" else "dict"
+        side[f"{prefix}_attempts"].set(f"{attempts:,}")
+        side[f"{prefix}_time"].set(_format_duration(elapsed))
+        if found:
+            side[f"{prefix}_result"].set(found)
+            self._set_status(
+                side, f"{prefix}_status", f"Found in {attempts:,} attempts ({elapsed:.3f} s)."
+            )
         else:
-            self.dict_attempts_var.set(f"{attempts:,}")
-            self.dict_time_var.set(_format_duration(elapsed))
-            if found:
-                self.dict_result_var.set(found)
-                self._set_dict_status(
-                    f"Password recovered in {attempts:,} attempts ({elapsed:.3f} s)."
-                )
-            else:
-                self.dict_result_var.set("(not found)")
-                self._set_dict_status(
-                    f"Not in the dictionary ({attempts:,} words tried).", is_error=True
-                )
+            side[f"{prefix}_result"].set("(not found)")
+            self._set_status(side, f"{prefix}_status", f"Not found ({attempts:,} tried).", is_error=True)
+        self._reenable_buttons()
 
-    def _attack_failed(self, message: str, method: str) -> None:
+    def _attack_failed(self, side_id: str, method: str, message: str) -> None:
         self._running = False
+        side = self.unprot if side_id == "unprotected" else self.prot
+        key = "bf_status" if method == "brute" else "dict_status"
+        self._set_status(side, key, f"Failed: {message}", is_error=True)
+        self._reenable_buttons()
+
+    def _reenable_buttons(self) -> None:
         self._refresh_target()
-        if method == "brute":
-            self._set_bf_status(f"Attack failed: {message}", is_error=True)
-        else:
-            self._set_dict_status(f"Attack failed: {message}", is_error=True)
+        self.refresh_button.configure(state="normal")
 
-    # --- status -----------------------------------------------------------
-
-    def _set_bf_status(self, message: str, is_error: bool = False) -> None:
-        self.bf_status_var.set(message)
-        self.bf_status_label.configure(foreground="#c92a2a" if is_error else "#0f5132")
-
-    def _set_dict_status(self, message: str, is_error: bool = False) -> None:
-        self.dict_status_var.set(message)
-        self.dict_status_label.configure(foreground="#c92a2a" if is_error else "#0f5132")
-
-    def _set_error_both(self, message: str) -> None:
-        self._set_bf_status(message, is_error=True)
-        self._set_dict_status(message, is_error=True)
+    def _set_status(self, side: dict[str, Any], key: str, message: str, is_error: bool = False) -> None:
+        side[key].set(message)
+        side[f"{key}_label"].configure(foreground="#c92a2a" if is_error else "#0f5132")

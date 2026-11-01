@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from typing import Any
 
 from passwords.generators import USE_CASES, candidates
 from passwords.protection import make_checker
@@ -39,33 +40,33 @@ def force_brute(
 
 
 def force_brute_target(
-    use_case: int, target: str | dict[str, str | int]
+    use_case: int, target: dict[str, Any], key: Any = 0
 ) -> tuple[str | None, int, float]:
     """Convenience wrapper: build the checker from `target`, run the attack, and time it.
 
-    `target` is either a fast hash string or a protected record dict.
+    `target` is an encrypted record dict.
     Returns (password_found, attempts, elapsed_seconds).
     """
-    check = make_checker(target)
+    check = make_checker(target, key)
     start = time.perf_counter()
     found, attempts = force_brute(use_case, check)
     elapsed = time.perf_counter() - start
     return found, attempts, elapsed
 
 
-def _demo(use_case: int, password: str) -> None:
-    """Small command-line demo: hash a password then brute-force it back."""
-    from passwords.generators import hash_fast
+def _demo(use_case: int, password: str, key: int = 3) -> None:
+    """Small command-line demo: encrypt a password then brute-force it back."""
+    from passwords.protection import protect
 
-    target = hash_fast(password)
+    record = protect(password, use_case, key=key)
     spec = USE_CASES[use_case]
     total = len(str(spec["alphabet"])) ** int(spec["length"])
 
     print(f"\n--- Use case {use_case} ({total} possible passwords) ---")
     print(f"Real password: {password}")
-    print(f"Stolen fast hash: {target}")
+    print(f"Protected record: {record}")
 
-    found, attempts, elapsed = force_brute_target(use_case, target)
+    found, attempts, elapsed = force_brute_target(use_case, record, key=key)
 
     print(f"Password recovered: {found}")
     print(f"Attempts: {attempts}")

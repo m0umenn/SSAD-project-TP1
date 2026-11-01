@@ -17,17 +17,17 @@ No external packages are required for the current code. The code imports only Py
 | Area | Status | What the code does today |
 | --- | --- | --- |
 | App shell | Implemented | `main.py` launches `gui.app.run_app()`, and `SSADToolkitApp` builds the window and side navigation. |
-| Encryption page | Implemented for Hill | `EncryptionPage` includes a working Hill panel, with Caesar and Playfair panels still as placeholders. |
+| Encryption page | Implemented | `EncryptionPage` supports classical ciphers including Hill, Caesar, and Playfair. |
 | Hill cipher logic | Implemented | `crypto/hill.py` provides `normalize`, `validate_key`, `determinant`, `inverse_key`, `padding_length`, `encrypt`, and `decrypt`. |
-| Caesar cipher | Stub | `crypto/caesar.py` raises `NotImplementedError` for all public functions. |
-| Playfair cipher | Stub | `crypto/playfair.py` raises `NotImplementedError` for all public functions. |
-| Password modules | Stub | `passwords/*.py` function stubs exist and intentionally do nothing. |
-| Integrity module | Stub | `integrity/integrity.py` function stubs exist and intentionally do nothing. |
-| Attack helpers | Stub | `attacks/*.py` function stubs exist and intentionally do nothing. |
-| Tests | Implemented | Unit tests cover Hill behavior, smoke imports, and vector checks. |
+| Caesar cipher | Implemented | `crypto/caesar.py` implements Caesar encryption, decryption, and key validation. |
+| Playfair cipher | Implemented | `crypto/playfair.py` implements Playfair 5x5 key matrix encryption, decryption, and key validation. |
+| Password modules | Implemented (Part 3) | `passwords/` implements encryption-based password protection, `make_checker`, `Lockout`, and `cipher_adapter.py`. |
+| Integrity module | Implemented (Part 4) | `integrity/hashing.py` provides SHA-256 fast hashing, PBKDF2 stretching, constant-time verification, and slowdown estimation. |
+| Attack helpers | Active work | `attacks/*.py` provides cryptanalysis tools, brute-force analysis, and frequency analysis. |
+| Tests | Implemented | Unit tests cover ciphers, encryption-based protection, integrity hashing, and lockout. |
 | Benchmark helper | Implemented | `benchmarks.py` times callable functions and skips unavailable ones. |
 
-Note: `README.md` and `PROJECT_UPDATE.md` still describe the project partly as a shell, but the actual code now contains a working Hill implementation and Hill GUI integration.
+Note: Part 3 protects passwords by encrypting them with ciphers, and all hashing functionality is segregated into `integrity/` (Part 4).
 
 ## 2. Folder tree
 
@@ -85,15 +85,15 @@ SSAD/
 - `gui/background.py`: helper to run a function in a background thread and return results with `root.after(...)`.
 - `gui/pages/base_page.py`: shared base frame for all pages.
 - `gui/pages/encryption_page.py`: main UI for algorithm choice and Hill workflow.
-- `gui/pages/passwords_page.py`: placeholder password page.
-- `gui/pages/attacks_page.py`: placeholder attacks page.
-- `gui/pages/integrity_page.py`: placeholder integrity/authenticity page.
-- `crypto/hill.py`: actual Hill cipher implementation.
-- `crypto/caesar.py`: Caesar stub.
-- `crypto/playfair.py`: Playfair stub.
-- `passwords/*.py`: password-related stubs.
-- `integrity/integrity.py`: integrity-related stubs.
-- `attacks/*.py`: attack-related stubs.
+- `gui/pages/passwords_page.py`: password protection via cipher encryption and login verification.
+- `gui/pages/attacks_page.py`: cryptanalysis and attack workbench.
+- `gui/pages/integrity_page.py`: integrity and authenticity verification.
+- `crypto/hill.py`: Hill cipher implementation.
+- `crypto/caesar.py`: Caesar cipher implementation.
+- `crypto/playfair.py`: Playfair cipher implementation.
+- `passwords/`: password protection via encryption (Part 3), candidate generation, and lockout.
+- `integrity/`: integrity and authenticity hashing package (Part 4).
+- `attacks/*.py`: attack and cryptanalysis logic.
 - `tests/*`: unit tests and known-good vectors.
 - `benchmarks.py`: simple timing helper for implemented ciphers.
 - `README.md`: user-facing project overview and run instructions.
@@ -273,15 +273,30 @@ The code for the Hill panel is built in `_build_hill_panel()`. The matrix grid f
 
 #### `PasswordsPage`
 
-`gui/pages/passwords_page.py` is a placeholder page:
+`gui/pages/passwords_page.py` provides the password protection and verification interface:
+- **Automated Key Generation:** The user never types a secret key. Keys are automatically generated via `passwords/key_store.py` and saved to `data/secret_keys.json`.
+- **Informational Label:** Shows `"Key: generated automatically and kept in a separate key file."`
+- **Store & Login Panels:** Allows storing a password for any of the 5 use cases (using Hill or Caesar) and testing authentication with automatic lockout tracking (5 failures, 30 s lock).
+- **Target Sharing:** Pushes protected records (`{"use_case", "cipher", "ciphertext", "params"}`) to `app.shared` for testing in `AttacksPage` without ever exposing the key.
 
-```python
-super().__init__(
-    parent,
-    "Passwords",
-    "Not implemented yet - add your widgets here.",
-)
-```
+#### Recipient Algorithm Label Verification (`crypto/recipient_check.py`)
+
+Classical ciphers transmitted from `EncryptionPage` to `DecryptionPage` send an algorithm label:
+- The algorithm label (`"caesar"`, `"playfair"`, or `"hill"`) is sent as public metadata alongside the ciphertext and padding length. The key is never sent.
+- On receipt in Entity B's Decryption window, the label is stored internally without displaying it or changing the dropdown.
+- **Single Uniform Error:** If the recipient selects an algorithm that does not match the transmitted label, the window does not decrypt and shows:
+  ```
+  "You are not the intended recipient."
+  ```
+  in red. If the algorithm matches, decryption runs; if an invalid key or bad format causes decryption to fail, the same error is shown. A wrong key that produces valid characters is not detected by design.
+- If ciphertext is pasted by hand, the stored label is cleared and decryption runs with no algorithm check.
+
+#### Threat Model: Symmetric Password Encryption vs. Hashing
+
+- **Record-Only Attacker:** An attacker who steals the database record holding ciphertext and use-case parameters must brute-force the cipher keys across the use-case alphabet.
+- **Server/Key Compromise:** If an attacker obtains both the record and `data/secret_keys.json`, symmetric encryption offers zero defense: the attacker reverses every password immediately.
+- **Why Part 4 Uses One-Way Hashing:** This structural vulnerability illustrates why passwords in production systems are never encrypted, but hashed using salted, slow one-way key derivation functions (e.g. PBKDF2-HMAC-SHA256).
+
 
 It does not currently implement password widgets. There is only a `# TODO` comment.
 
@@ -1114,7 +1129,7 @@ This is the real logic test file for the Hill cipher. It checks:
 This file verifies that:
 
 - importlib can import `crypto`, `passwords`, `integrity`, `attacks`, and `gui`
-- Caesar/Playfair stub functions raise `NotImplementedError`
+- Caesar, Playfair, and Hill ciphers function as expected with valid key checks
 - `hill` itself functions as expected for the identity key and a valid round trip
 
 ### `benchmarks.py`
@@ -1238,10 +1253,11 @@ Notable disagreement with documentation: the README still describes the project 
 
 This section is based only on the code as it exists today.
 
-- `crypto/caesar.py` is not implemented.
-- `crypto/playfair.py` is not implemented.
-- `passwords/generators.py`, `passwords/brute_force.py`, `passwords/dictionary.py`, `passwords/protection.py`, and `integrity/integrity.py` are all stubs.
-- `attacks/caesar_attack.py`, `attacks/playfair_attack.py`, and `attacks/hill_attack.py` are stubs.
+- `crypto/caesar.py` implements the Caesar cipher.
+- `crypto/playfair.py` implements the Playfair cipher.
+- `passwords/` implements password candidate generation and encryption-based protection (Part 3).
+- `integrity/` provides data hashing and integrity verification helpers (Part 4).
+- `attacks/caesar_attack.py`, `attacks/playfair_attack.py`, and `attacks/hill_attack.py` provide cryptanalysis logic.
 - `gui/pages/passwords_page.py`, `gui/pages/attacks_page.py`, and `gui/pages/integrity_page.py` are placeholder pages.
 - The app does not yet connect any real network or persistence layer.
 - The default GUI is a classroom shell rather than a production-ready cryptography suite.
@@ -1457,7 +1473,7 @@ The GUI was not run here; these results come from the code and the current unit 
 ## 16. Design decisions and why
 
 - Tkinter only: the project uses `tkinter` and `ttk` from the Python standard library. There is no external GUI framework in the code.
-- One file per algorithm: the layout expects each cipher algorithm to live in its own module, such as `crypto/hill.py` and the stubs for Caesar or Playfair.
+- One file per algorithm: the layout expects each cipher algorithm to live in its own module, such as `crypto/hill.py`, `crypto/caesar.py`, and `crypto/playfair.py`.
 - No cipher math in the GUI: `EncryptionPage` reads values and calls `crypto.hill.encrypt()` / `decrypt()`. The matrix math is stored in the cipher module, not in the page layer.
 - Explicit `pad_len` instead of guessing: the code does not guess the trailing padding length. It needs either the correct value or `None` to leave padding visible.
 - Strict matrix parser: `EncryptionPage._parse_hill_key()` rejects malformed cells immediately rather than silently converting them to zero.
@@ -1489,11 +1505,11 @@ The GUI was not run here; these results come from the code and the current unit 
 8. How do sender and receiver share the key?
    - The code does not define a network protocol or key exchange. It assumes the key matrix is already shared out of band.
 
-9. How do I add Playfair?
-   - Add a new implementation in `crypto/playfair.py`, then add the UI builder and page logic in `gui/pages/encryption_page.py`, and extend `tests/vectors.py` plus the test suite.
+9. How is Playfair implemented?
+   - Playfair is implemented in `crypto/playfair.py` using a 5x5 key square (combining I/J), digraph rules for same-row/same-column/rectangle substitution, and padding filler letters.
 
-10. Why are Caesar and Playfair still stubs?
-   - Because the current code only implements Hill and leaves the other algorithm modules as `NotImplementedError`-raising stubs.
+10. Are Caesar and Playfair implemented?
+   - Yes, both Caesar (`crypto/caesar.py`) and Playfair (`crypto/playfair.py`) are implemented ciphers in the toolkit alongside Hill.
 
 11. Why is the matrix parser strict?
    - Because `EncryptionPage._parse_hill_key()` rejects bad cells instead of converting them to `0`, which makes bad data visible immediately.
@@ -1566,23 +1582,27 @@ This section is grounded in the actual workspace files.
 | `gui/background.py` | Background-task helper | `run_in_background()` or equivalent helper pattern | GUI maintainer |
 | `gui/pages/base_page.py` | Shared page frame | `BasePage.__init__()` | GUI maintainer |
 | `gui/pages/encryption_page.py` | Hill UI and control logic | `EncryptionPage.__init__()`, `_build_hill_panel()`, `_rebuild_hill_key_grid()`, `_current_hill_key()`, `_parse_hill_key()`, `_check_hill_key()`, `_encrypt_hill_message()`, `_decrypt_hill_message()` | Hill/GUI maintainer |
-| `gui/pages/passwords_page.py` | Placeholder page | `PasswordsPage` | future password feature work |
-| `gui/pages/attacks_page.py` | Placeholder page | `AttacksPage` | future attack feature work |
-| `gui/pages/integrity_page.py` | Placeholder page | `IntegrityPage` | future integrity/authenticity work |
+| `gui/pages/passwords_page.py` | Password encryption UI | `PasswordsPage` | Password defence maintainer |
+| `gui/pages/attacks_page.py` | Attacks comparison UI | `AttacksPage` | Attack analysis maintainer |
+| `gui/pages/integrity_page.py` | Authenticity/Integrity UI | `IntegrityPage` | Integrity maintainer |
 | `crypto/hill.py` | Actual Hill implementation | `normalize()`, `_coerce_key()`, `determinant()`, `inverse_key()`, `validate_key()`, `padding_length()`, `_matrix_multiply()`, `encrypt()`, `decrypt()` | cryptography maintainer |
-| `crypto/caesar.py` | Caesar cipher stub | public functions raise `NotImplementedError` | future cipher implementation |
-| `crypto/playfair.py` | Playfair cipher stub | public functions raise `NotImplementedError` | future cipher implementation |
-| `passwords/brute_force.py` | Stubbed password tooling | undefined/placeholder functions | password toolkit maintainer |
-| `passwords/dictionary.py` | Stubbed password tooling | undefined/placeholder functions | password toolkit maintainer |
-| `passwords/generators.py` | Stubbed generator tooling | undefined/placeholder functions | password toolkit maintainer |
-| `passwords/protection.py` | Stubbed protection tooling | undefined/placeholder functions | password toolkit maintainer |
-| `integrity/integrity.py` | Stubbed integrity helpers | undefined/placeholder functions | integrity maintainer |
-| `attacks/caesar_attack.py` | Stubbed Caesar attack logic | undefined/placeholder functions | attack analysis maintainer |
-| `attacks/hill_attack.py` | Stubbed Hill attack logic | undefined/placeholder functions | attack analysis maintainer |
-| `attacks/playfair_attack.py` | Stubbed Playfair attack logic | undefined/placeholder functions | attack analysis maintainer |
+| `crypto/caesar.py` | Caesar cipher | `encrypt()`, `decrypt()`, `validate_key()`, `brute_force()`, `frequency_attack()` | cryptography maintainer |
+| `crypto/playfair.py` | Playfair cipher | `encrypt()`, `decrypt()`, `validate_key()` | cryptography maintainer |
+| `passwords/cipher_adapter.py` | Cipher mapping and dispatch | `USE_CASE_CIPHER`, `encrypt()`, `decrypt()`, `parse_key()` | password toolkit maintainer |
+| `passwords/protection.py` | Encryption-based password protection (Part 3) | `protect()`, `make_checker()`, `Lockout`, `validate_password()` | password toolkit maintainer |
+| `passwords/generators.py` | Use case specs & candidate generator | `USE_CASES`, `CASE_3_ALPHABET`, `candidates()` | password toolkit maintainer |
+| `passwords/brute_force.py` | Brute force attacks | `force_brute()`, `force_brute_target()` | password toolkit maintainer |
+| `passwords/dictionary.py` | Dictionary attacks | `dictionary_attack()`, `dictionary_attack_target()` | password toolkit maintainer |
+| `integrity/hashing.py` | Hashing & integrity helpers (Part 4) | `hash_fast()`, `hash_protected()`, `generate_salt()`, `verify_protected()`, `compare_hashes()`, `estimate_slowdown()` | integrity maintainer |
+| `integrity/README.md` | API documentation for integrity package | public function reference | integrity maintainer |
+| `attacks/caesar_attack.py` | Caesar attack logic | `brute_force_all_keys()`, `frequency_analysis()` | attack analysis maintainer |
+| `attacks/hill_attack.py` | Hill attack logic | `known_plaintext_attack()` | attack analysis maintainer |
+| `attacks/playfair_attack.py` | Playfair attack logic | `digraph_frequency_analysis()` | attack analysis maintainer |
 | `tests/vectors.py` | Test vectors | `CAESAR_VECTORS`, `PLAYFAIR_VECTORS`, `HILL_VECTORS` | test maintainer |
 | `tests/test_hill.py` | Hill regression tests | `TestHillCipherLogic` | cryptography maintainer |
-| `tests/test_ciphers.py` | Vector-driven tests | `TestCaesarCipher`, `TestHillCipher`, `TestPlayfairCipher` | test maintainer |
+| `tests/test_ciphers.py` | Vector-driven cipher tests | `TestCaesarCipher`, `TestHillCipher`, `TestPlayfairCipher` | test maintainer |
+| `tests/test_protection.py` | Password encryption & lockout tests | `TestEncryptedProtection`, `TestProtectionValidation`, `TestGenerators`, `TestLockout` | test maintainer |
+| `tests/test_integrity.py` | Integrity hashing & known-vector tests | `TestIntegrityHashing` | test maintainer |
 | `tests/test_smoke.py` | Import smoke tests | `TestImports`, `TestStubFunctions` | project maintainer |
 | `benchmarks.py` | Timing helper for cipher functions | helper functions for timing benchmark entries | project maintainer |
 | `README.md` | User-level overview | project README | documentation maintainer |
