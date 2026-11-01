@@ -16,10 +16,12 @@ from integrity.hashing import (
 from integrity.integrity import (
     hash_data,
     hash_file,
+    hmac_file,
     hmac_sha256,
     verify_data,
     verify_digest,
     verify_hmac,
+    verify_hmac_file,
 )
 
 __all__ = [
@@ -32,10 +34,12 @@ __all__ = [
     "hash_fast",
     "hash_file",
     "hash_protected",
+    "hmac_file",
     "hmac_sha256",
     "parse_record",
     "verify_data",
     "verify_digest",
     "verify_hmac",
+    "verify_hmac_file",
     "verify_protected",
 ]

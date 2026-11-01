@@ -169,3 +169,48 @@ def verify_hmac(key: str | bytes, message: str | bytes, tag: str) -> bool:
     """
     expected = _check_hex(tag, "Tag")
     return compare_hashes(hmac_sha256(key, message), expected)
+
+
+def hmac_file(key: str | bytes, path: str | os.PathLike, chunk_size: int = CHUNK_SIZE) -> str:
+    """Return the HMAC-SHA-256 tag (64 hex characters) of a file.
+
+    Like `hash_file`, the file is read in chunks, so it never has to fit in
+    memory. For the same bytes, the result equals `hmac_sha256(key, content)`.
+
+    Raises:
+        ValueError: If `key` is empty or not a str/bytes, `path` is not a path,
+            `chunk_size` is not a positive integer, or the file cannot be read.
+    """
+    key_bytes = _to_bytes(key, "Key")
+    if not key_bytes:
+        raise ValueError("Key must not be empty.")
+    if not isinstance(path, (str, os.PathLike)):
+        raise ValueError("Path must be a string or a path object.")
+    if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size <= 0:
+        raise ValueError("chunk_size must be a positive integer.")
+    mac = hmac.new(key_bytes, digestmod=hashlib.sha256)
+    try:
+        with open(path, "rb") as handle:
+            while True:
+                chunk = handle.read(chunk_size)
+                if not chunk:
+                    break
+                mac.update(chunk)
+    except OSError as exc:
+        raise ValueError(f"Cannot read file: {exc.strerror or exc}") from None
+    return mac.hexdigest()
+
+
+def verify_hmac_file(key: str | bytes, path: str | os.PathLike, tag: str) -> bool:
+    """Check the HMAC-SHA-256 tag of a file in constant time.
+
+    Returns:
+        bool: True if the tag is valid for this key and file, False if the file
+            was modified or the key is wrong.
+
+    Raises:
+        ValueError: If `tag` is not 64 hexadecimal characters, or `key` /
+            `path` is invalid or unreadable (see hmac_file).
+    """
+    expected = _check_hex(tag, "Tag")
+    return compare_hashes(hmac_file(key, path), expected)

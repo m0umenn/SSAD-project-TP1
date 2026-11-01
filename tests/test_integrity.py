@@ -22,11 +22,13 @@ from integrity import (
     hash_file,
     hash_fast,
     hash_protected,
+    hmac_file,
     hmac_sha256,
     parse_record,
     verify_data,
     verify_digest,
     verify_hmac,
+    verify_hmac_file,
     verify_protected,
 )
 
@@ -346,6 +348,62 @@ class TestHmac(unittest.TestCase):
             with self.subTest(message=bad_message):
                 with self.assertRaises(ValueError):
                     hmac_sha256("k", bad_message)  # type: ignore[arg-type]
+
+
+class TestHmacFile(unittest.TestCase):
+    """Tests for hmac_file / verify_hmac_file (authenticity of a file)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "doc.bin"
+        self.path.write_bytes(bytes(range(256)) * 50)  # 12 800 bytes
+
+    def test_equals_hmac_of_content(self) -> None:
+        content = self.path.read_bytes()
+        for chunk_size in (1, 7, 4096, 1_000_000):
+            with self.subTest(chunk_size=chunk_size):
+                self.assertEqual(
+                    hmac_file("secret", self.path, chunk_size=chunk_size),
+                    hmac_sha256("secret", content),
+                )
+
+    def test_str_and_path_accepted(self) -> None:
+        self.assertEqual(hmac_file("k", str(self.path)), hmac_file("k", self.path))
+
+    def test_valid_and_modified_file(self) -> None:
+        tag = hmac_file("shared-secret", self.path)
+        self.assertTrue(verify_hmac_file("shared-secret", self.path, tag))
+        self.path.write_bytes(self.path.read_bytes()[:-1] + b"X")
+        self.assertFalse(verify_hmac_file("shared-secret", self.path, tag))
+
+    def test_wrong_key_fails(self) -> None:
+        tag = hmac_file("shared-secret", self.path)
+        self.assertFalse(verify_hmac_file("wrong-secret", self.path, tag))
+
+    def test_plain_digest_is_not_a_valid_tag(self) -> None:
+        self.assertFalse(verify_hmac_file("shared-secret", self.path, hash_file(self.path)))
+
+    def test_invalid_inputs(self) -> None:
+        tag = hmac_file("k", self.path)
+        for bad_key in ("", b"", None, 123):
+            with self.subTest(key=bad_key):
+                with self.assertRaises(ValueError):
+                    hmac_file(bad_key, self.path)  # type: ignore[arg-type]
+        for bad_path in (None, 123, b"abc"):
+            with self.subTest(path=bad_path):
+                with self.assertRaises(ValueError):
+                    hmac_file("k", bad_path)  # type: ignore[arg-type]
+        for bad_size in (0, -1, True, "10", 1.5):
+            with self.subTest(chunk_size=bad_size):
+                with self.assertRaises(ValueError):
+                    hmac_file("k", self.path, chunk_size=bad_size)  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            hmac_file("k", Path(self.tmp.name) / "missing.bin")
+        with self.assertRaises(ValueError):
+            verify_hmac_file("k", self.path, "short")
+        with self.assertRaises(ValueError):
+            verify_hmac_file("k", self.path, tag + "0")
 
 
 if __name__ == "__main__":

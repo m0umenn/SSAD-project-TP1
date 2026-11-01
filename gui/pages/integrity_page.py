@@ -1,8 +1,8 @@
 """Authenticity and integrity page (Part 4).
 
 Tabs:
-  - Hash & verify : A hashes a text or a file and sends it to B, B checks it against the digest.
-  - HMAC          : authenticity with a shared secret key.
+  - Hash & verify : A hashes a text or a file (SHA-256, or HMAC-SHA-256 if a secret key
+                    is given) and sends it to B, who verifies it.
   - Salt demo     : same password + two random salts = two different stored values.
   - Tamper demo   : a modified ciphertext still decrypts; the digest / HMAC detects it.
 
@@ -12,6 +12,7 @@ Everything here relies on the integrity package (standard library only).
 from __future__ import annotations
 
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
@@ -19,19 +20,24 @@ from typing import Any, Callable
 
 from gui.pages.base_page import BasePage
 from integrity import (
+    ITERATIONS,
+    estimate_slowdown,
     hash_data,
     hash_fast,
     hash_file,
     hash_protected,
+    hmac_file,
     hmac_sha256,
     verify_digest,
     verify_hmac,
+    verify_hmac_file,
     verify_protected,
 )
 
 OK_COLOR = "#0f5132"
 FAIL_COLOR = "#c92a2a"
 INFO_COLOR = "#52616f"
+WARN_COLOR = "#b45309"  # amber: a check passed although the content was changed
 MONO = ("Courier New", 10)
 
 
@@ -60,7 +66,6 @@ class IntegrityPage(BasePage):
         self.notebook.grid(row=1, column=0, sticky="nsew")
 
         self._build_hash_tab()
-        self._build_hmac_tab()
         self._build_salt_tab()
         self._build_tamper_tab()
 
@@ -160,14 +165,6 @@ class IntegrityPage(BasePage):
     def _say(label: ttk.Label, text: str, color: str = INFO_COLOR) -> None:
         label.configure(text=text, foreground=color)
 
-    def _copy(self, value: str, label: ttk.Label) -> None:
-        if not value:
-            self._say(label, "Nothing to copy yet.", FAIL_COLOR)
-            return
-        self.clipboard_clear()
-        self.clipboard_append(value)
-        self._say(label, "Copied to the clipboard.", OK_COLOR)
-
     def _background(self, work: Callable[[], Any], done: Callable[[Any, str | None], None]) -> None:
         """Run `work` in a thread so large files never freeze the window."""
 
@@ -192,30 +189,44 @@ class IntegrityPage(BasePage):
         self.after(30, poll)
 
     # ------------------------------------------------------- tab: hash & verify
+    #
+    # One screen for integrity and authenticity. Without a secret key the result
+    # is a plain SHA-256 digest; with a key it is an HMAC-SHA-256 tag (SHA-256
+    # mixed with the key). Side B uses the same rule to verify.
 
     def _build_hash_tab(self) -> None:
         tab = self._new_tab("Hash & verify")
         left, right = self._make_sides(
-            tab, "Entity A (sender): hash a text or a file", "Entity B (receiver): verify against a digest"
+            tab,
+            "Entity A (sender): hash a text or a file",
+            "Entity B (receiver): verify the content",
         )
-
+        self.show_keys = tk.BooleanVar(value=False)
         self._hashed_kind: str | None = None  # "text" or "file": what A last hashed
         self._hashed_value = ""
+        self._hashed_key = ""
 
-        # Left: hash
-        self.hash_text = self._text_box_with_label(left, 0, "Text:")
-        self._buttons(left, 2, ("Hash text", self._hash_text_clicked))
-        self._label(left, 3, "File:")
+        # Left: A
+        self._label(left, 0, "Secret key (optional): empty = SHA-256 digest, filled = HMAC-SHA-256 tag")
+        self.hash_key = ttk.Entry(left, show="*")
+        self.hash_key.grid(row=1, column=0, sticky="ew", pady=(0, 4))
+        ttk.Checkbutton(
+            left, text="Show keys", variable=self.show_keys, command=self._toggle_keys
+        ).grid(row=2, column=0, sticky="w", pady=(0, 8))
+        self.hash_text = self._text_box_with_label(left, 3, "Text:")
+        self._buttons(left, 5, ("Hash text", self._hash_text_clicked))
+        self._label(left, 6, "File:")
         self.hash_path = tk.StringVar()
-        self._file_row(left, 4, self.hash_path)
-        self._buttons(left, 5, ("Hash file", self._hash_file_clicked))
-        self._label(left, 6, "SHA-256 digest:")
+        self._file_row(left, 7, self.hash_path)
+        self._buttons(left, 8, ("Hash file", self._hash_file_clicked))
+        self.hash_result_label = ttk.Label(left, text="SHA-256 digest / HMAC tag:")
+        self.hash_result_label.grid(row=9, column=0, sticky="w")
         self.hash_digest = tk.StringVar()
-        self._readonly(left, 7, self.hash_digest)
-        self.hash_status = self._status(left, 9, "Enter a text or choose a file.")
-        self._buttons(left, 8, ("Send to B →", self._send_to_b))
+        self._readonly(left, 10, self.hash_digest)
+        self._buttons(left, 11, ("Send to B →", self._send_to_b), ("Clear all", self._hash_clear))
+        self.hash_status = self._status(left, 12, "Enter a text or choose a file.")
 
-        # Right: verify
+        # Right: B
         self._label(right, 0, "Content received (editable):")
         self.verify_mode = tk.StringVar(value="text")
         modes = ttk.Frame(right)
@@ -227,13 +238,16 @@ class IntegrityPage(BasePage):
         self.verify_text = self._text_box(right, 2)
         self.verify_path = tk.StringVar()
         self._file_row(right, 3, self.verify_path)
-        self._label(right, 4, "Expected digest (64 hex characters):")
+        self._label(right, 4, "Secret key (optional, the same as A's):")
+        self.verify_key = ttk.Entry(right, show="*")
+        self.verify_key.grid(row=5, column=0, sticky="ew", pady=(0, 8))
+        self._label(right, 6, "Expected digest or tag (64 hex characters):")
         self.verify_digest_var = tk.StringVar()
         ttk.Entry(right, textvariable=self.verify_digest_var).grid(
-            row=5, column=0, sticky="ew", pady=(0, 8)
+            row=7, column=0, sticky="ew", pady=(0, 8)
         )
-        self._buttons(right, 6, ("Verify", self._verify_clicked))
-        self._label(right, 7, "Result:")
+        self._buttons(right, 8, ("Verify", self._verify_clicked))
+        self._label(right, 9, "Result:")
         self.verify_result = ttk.Label(
             right,
             text="No check yet.",
@@ -242,11 +256,22 @@ class IntegrityPage(BasePage):
             justify="left",
             foreground=INFO_COLOR,
         )
-        self.verify_result.grid(row=8, column=0, sticky="w")
+        self.verify_result.grid(row=10, column=0, sticky="w")
 
     def _text_box_with_label(self, parent: tk.Widget, row: int, label: str) -> tk.Text:
         self._label(parent, row, label)
         return self._text_box(parent, row + 1)
+
+    def _toggle_keys(self) -> None:
+        show = "" if self.show_keys.get() else "*"
+        for entry in (self.hash_key, self.verify_key, self.salt_entry, self.tamper_key):
+            entry.configure(show=show)
+
+    def _set_result(self, value: str, with_key: bool) -> None:
+        self.hash_digest.set(value)
+        self.hash_result_label.configure(
+            text="HMAC-SHA-256 tag:" if with_key else "SHA-256 digest:"
+        )
 
     def _hash_text_clicked(self) -> None:
         text = self._get_text(self.hash_text)
@@ -254,30 +279,44 @@ class IntegrityPage(BasePage):
             self.hash_digest.set("")
             self._say(self.hash_status, "Enter a text first.", FAIL_COLOR)
             return
-        self.hash_digest.set(hash_data(text))
-        self._hashed_kind, self._hashed_value = "text", text
-        self._say(self.hash_status, "Text hashed.", OK_COLOR)
+        key = self.hash_key.get()
+        try:
+            value = hmac_sha256(key, text) if key else hash_data(text)
+        except ValueError as exc:
+            self._say(self.hash_status, str(exc), FAIL_COLOR)
+            return
+        self._set_result(value, bool(key))
+        self._hashed_kind, self._hashed_value, self._hashed_key = "text", text, key
+        self._say(self.hash_status, "Tag computed with the key." if key else "Text hashed.", OK_COLOR)
 
     def _hash_file_clicked(self) -> None:
         path = self.hash_path.get().strip()
         if not path:
             self._say(self.hash_status, "Choose a file first.", FAIL_COLOR)
             return
+        key = self.hash_key.get()
         self._say(self.hash_status, "Hashing the file...")
+
+        def work() -> str:
+            return hmac_file(key, Path(path)) if key else hash_file(Path(path))
 
         def done(result: Any, error: str | None) -> None:
             if error:
                 self.hash_digest.set("")
                 self._say(self.hash_status, error, FAIL_COLOR)
             else:
-                self.hash_digest.set(result)
-                self._hashed_kind, self._hashed_value = "file", path
-                self._say(self.hash_status, "File hashed.", OK_COLOR)
+                self._set_result(result, bool(key))
+                self._hashed_kind, self._hashed_value, self._hashed_key = "file", path, key
+                self._say(
+                    self.hash_status,
+                    "File tag computed with the key." if key else "File hashed.",
+                    OK_COLOR,
+                )
 
-        self._background(lambda: hash_file(Path(path)), done)
+        self._background(work, done)
 
     def _send_to_b(self) -> None:
-        """Copy what A hashed (text or file) and its digest to B's side."""
+        """Copy what A hashed (text or file), its digest or tag, and the key to B."""
         digest = self.hash_digest.get()
         if not digest or self._hashed_kind is None:
             self._say(self.hash_status, "Compute a digest first.", FAIL_COLOR)
@@ -288,12 +327,43 @@ class IntegrityPage(BasePage):
         else:
             self.verify_mode.set("file")
             self.verify_path.set(self._hashed_value)
+        self.verify_key.delete(0, "end")
+        self.verify_key.insert(0, self._hashed_key)
         self.verify_digest_var.set(digest)
         self._say(self.verify_result, "Content and digest received. Click \"Verify\".")
-        self._say(self.hash_status, "Content and digest sent to B.", OK_COLOR)
+        self._say(self.hash_status, "Content, digest and key sent to B.", OK_COLOR)
 
-    def _show_verify(self, ok: bool) -> None:
-        if ok:
+    def _hash_clear(self) -> None:
+        """Reset both sides: A (key, text, file, result) and B (content, key, digest, result)."""
+        self.hash_key.delete(0, "end")
+        self._set_text(self.hash_text, "")
+        self.hash_path.set("")
+        self._set_result("", False)
+        self.hash_result_label.configure(text="SHA-256 digest / HMAC tag:")
+        self._hashed_kind, self._hashed_value, self._hashed_key = None, "", ""
+        self._say(self.hash_status, "Enter a text or choose a file.")
+        self.verify_mode.set("text")
+        self._set_text(self.verify_text, "")
+        self.verify_path.set("")
+        self.verify_key.delete(0, "end")
+        self.verify_digest_var.set("")
+        self._say(self.verify_result, "No check yet.")
+
+    def _show_verify(self, ok: bool, with_key: bool) -> None:
+        if with_key:
+            if ok:
+                self._say(
+                    self.verify_result,
+                    "HMAC valid: the content is unchanged and comes from a holder of the key.",
+                    OK_COLOR,
+                )
+            else:
+                self._say(
+                    self.verify_result,
+                    "HMAC INVALID: the content was modified or the key is wrong.",
+                    FAIL_COLOR,
+                )
+        elif ok:
             self._say(self.verify_result, "Digest matches: the content is unchanged.", OK_COLOR)
         else:
             self._say(self.verify_result, "Digest does NOT match: the content was modified.", FAIL_COLOR)
@@ -301,15 +371,18 @@ class IntegrityPage(BasePage):
     def _verify_clicked(self) -> None:
         digest = self.verify_digest_var.get().strip()
         if not digest:
-            self._say(self.verify_result, "Enter the expected digest.", FAIL_COLOR)
+            self._say(self.verify_result, "Enter the expected digest or tag.", FAIL_COLOR)
             return
+        key = self.verify_key.get()
+        with_key = bool(key)
         if self.verify_mode.get() == "text":
+            text = self._get_text(self.verify_text)
             try:
-                ok = verify_digest(self._get_text(self.verify_text), digest)
+                ok = verify_hmac(key, text, digest) if with_key else verify_digest(text, digest)
             except ValueError as exc:
                 self._say(self.verify_result, str(exc), FAIL_COLOR)
                 return
-            self._show_verify(ok)
+            self._show_verify(ok, with_key)
             return
 
         path = self.verify_path.get().strip()
@@ -318,108 +391,18 @@ class IntegrityPage(BasePage):
             return
         self._say(self.verify_result, "Checking the file...")
 
+        def work() -> bool:
+            if with_key:
+                return verify_hmac_file(key, Path(path), digest)
+            return verify_digest(path, digest, is_path=True)
+
         def done(result: Any, error: str | None) -> None:
             if error:
                 self._say(self.verify_result, error, FAIL_COLOR)
             else:
-                self._show_verify(bool(result))
+                self._show_verify(bool(result), with_key)
 
-        self._background(lambda: verify_digest(path, digest, is_path=True), done)
-
-    # ------------------------------------------------------------ tab: HMAC
-
-    def _build_hmac_tab(self) -> None:
-        tab = self._new_tab("HMAC")
-        left, right = self._make_sides(tab, "Compute a tag (sender)", "Verify a tag (receiver)")
-        self.show_keys = tk.BooleanVar(value=False)
-
-        # Left: compute
-        self._label(left, 0, "Shared secret key:")
-        self.hmac_key_a = ttk.Entry(left, show="*")
-        self.hmac_key_a.grid(row=1, column=0, sticky="ew", pady=(0, 4))
-        ttk.Checkbutton(
-            left, text="Show keys", variable=self.show_keys, command=self._toggle_keys
-        ).grid(row=2, column=0, sticky="w", pady=(0, 8))
-        self.hmac_msg_a = self._text_box_with_label(left, 3, "Message:")
-        self._buttons(left, 5, ("Compute tag", self._hmac_compute))
-        self._label(left, 6, "HMAC-SHA-256 tag:")
-        self.hmac_tag_a = tk.StringVar()
-        self._readonly(left, 7, self.hmac_tag_a)
-        self.hmac_status_a = self._status(left, 9, "Enter a key and a message.")
-        self._buttons(
-            left,
-            8,
-            ("Copy tag", lambda: self._copy(self.hmac_tag_a.get(), self.hmac_status_a)),
-            ("Send to verifier →", self._hmac_send),
-        )
-
-        # Right: verify
-        self._label(right, 0, "Shared secret key:")
-        self.hmac_key_b = ttk.Entry(right, show="*")
-        self.hmac_key_b.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        self.hmac_msg_b = self._text_box_with_label(right, 2, "Received message (editable):")
-        self._label(right, 4, "Received tag:")
-        self.hmac_tag_b = tk.StringVar()
-        ttk.Entry(right, textvariable=self.hmac_tag_b).grid(row=5, column=0, sticky="ew", pady=(0, 8))
-        self._buttons(right, 6, ("Verify HMAC", self._hmac_verify))
-        self._label(right, 7, "Result:")
-        self.hmac_result = ttk.Label(
-            right,
-            text="No check yet.",
-            font=("TkDefaultFont", 10, "bold"),
-            wraplength=480,
-            justify="left",
-            foreground=INFO_COLOR,
-        )
-        self.hmac_result.grid(row=8, column=0, sticky="w")
-
-    def _toggle_keys(self) -> None:
-        show = "" if self.show_keys.get() else "*"
-        for entry in (self.hmac_key_a, self.hmac_key_b, self.salt_entry, self.tamper_key):
-            entry.configure(show=show)
-
-    def _hmac_compute(self) -> None:
-        key = self.hmac_key_a.get()
-        message = self._get_text(self.hmac_msg_a)
-        if not key or not message:
-            self.hmac_tag_a.set("")
-            self._say(self.hmac_status_a, "Enter a key and a message first.", FAIL_COLOR)
-            return
-        try:
-            self.hmac_tag_a.set(hmac_sha256(key, message))
-        except ValueError as exc:
-            self._say(self.hmac_status_a, str(exc), FAIL_COLOR)
-            return
-        self._say(self.hmac_status_a, "Tag computed.", OK_COLOR)
-
-    def _hmac_send(self) -> None:
-        if not self.hmac_tag_a.get():
-            self._hmac_compute()
-            if not self.hmac_tag_a.get():
-                return
-        self.hmac_key_b.delete(0, "end")
-        self.hmac_key_b.insert(0, self.hmac_key_a.get())
-        self._set_text(self.hmac_msg_b, self._get_text(self.hmac_msg_a))
-        self.hmac_tag_b.set(self.hmac_tag_a.get())
-        self._say(self.hmac_status_a, "Key, message and tag sent to the verifier.", OK_COLOR)
-        self._say(self.hmac_result, "Message received. Click \"Verify HMAC\".")
-
-    def _hmac_verify(self) -> None:
-        key = self.hmac_key_b.get()
-        message = self._get_text(self.hmac_msg_b)
-        tag = self.hmac_tag_b.get().strip()
-        if not key or not message or not tag:
-            self._say(self.hmac_result, "Enter the key, the message and the tag.", FAIL_COLOR)
-            return
-        try:
-            ok = verify_hmac(key, message, tag)
-        except ValueError as exc:
-            self._say(self.hmac_result, str(exc), FAIL_COLOR)
-            return
-        if ok:
-            self._say(self.hmac_result, "HMAC valid: the message is unchanged and comes from a holder of the key.", OK_COLOR)
-        else:
-            self._say(self.hmac_result, "HMAC INVALID: the message was modified or the key is wrong.", FAIL_COLOR)
+        self._background(work, done)
 
     # ------------------------------------------------------------- tab: salt demo
 
@@ -428,12 +411,13 @@ class IntegrityPage(BasePage):
         left, right = self._make_sides(
             tab, "Protected records (PBKDF2, random salt)", "Fast hash (SHA-256, no salt)"
         )
+        self._salt_records: list[dict[str, Any]] = []
 
-        # Shared input on the left, above the records
+        # Left: the two salted records, then a password check
         self._label(left, 0, "Password:")
         self.salt_entry = ttk.Entry(left, show="*")
         self.salt_entry.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        self._buttons(left, 2, ("Hash it twice", self._salt_run))
+        self._buttons(left, 2, ("Hash it twice", self._salt_run), ("Clear all", self._salt_clear))
 
         self.salt_vars = {name: tk.StringVar() for name in ("salt1", "hash1", "salt2", "hash2", "fast1", "fast2")}
         rows = [
@@ -446,6 +430,14 @@ class IntegrityPage(BasePage):
             self._label(left, 3 + index * 2, label)
             self._readonly(left, 4 + index * 2, self.salt_vars[key])
 
+        self._label(left, 11, "Try a password against both records:")
+        self.salt_guess = ttk.Entry(left, show="*")
+        self.salt_guess.grid(row=12, column=0, sticky="ew", pady=(0, 8))
+        self._buttons(left, 13, ("Verify", self._salt_verify))
+        self.salt_verify_result = self._status(left, 14, "")
+        self.salt_verify_result.configure(font=("TkDefaultFont", 10, "bold"))
+
+        # Right: the same password without salt, then the speed measurement
         self._label(right, 0, "Hash, first time:")
         self._readonly(right, 1, self.salt_vars["fast1"])
         self._label(right, 2, "Hash, second time:")
@@ -459,7 +451,14 @@ class IntegrityPage(BasePage):
             foreground=INFO_COLOR,
             font=("TkDefaultFont", 10, "bold"),
         )
-        self.salt_summary.grid(row=4, column=0, sticky="w", pady=(8, 0))
+        self.salt_summary.grid(row=4, column=0, sticky="w", pady=(8, 12))
+
+        self._label(right, 5, "Speed: why a plain SHA-256 is too fast for passwords")
+        self._buttons(right, 6, ("Measure speed", self._salt_measure))
+        self.salt_speed = ttk.Label(
+            right, text="", wraplength=480, justify="left", foreground=INFO_COLOR
+        )
+        self.salt_speed.grid(row=7, column=0, sticky="w")
 
     def _salt_run(self) -> None:
         password = self.salt_entry.get()
@@ -469,6 +468,7 @@ class IntegrityPage(BasePage):
         first = hash_protected(password)
         second = hash_protected(password)
         fast_first, fast_second = hash_fast(password), hash_fast(password)
+        self._salt_records = [first, second]
 
         self.salt_vars["salt1"].set(str(first["salt"]))
         self.salt_vars["hash1"].set(str(first["hash"]))
@@ -476,6 +476,7 @@ class IntegrityPage(BasePage):
         self.salt_vars["hash2"].set(str(second["hash"]))
         self.salt_vars["fast1"].set(fast_first)
         self.salt_vars["fast2"].set(fast_second)
+        self._say(self.salt_verify_result, "")
 
         both_verify = verify_protected(password, first) and verify_protected(password, second)
         different = first["hash"] != second["hash"] and first["salt"] != second["salt"]
@@ -491,11 +492,83 @@ class IntegrityPage(BasePage):
         else:
             self._say(self.salt_summary, "Unexpected result: check the integrity package.", FAIL_COLOR)
 
+    def _salt_verify(self) -> None:
+        if not self._salt_records:
+            self._say(self.salt_verify_result, "Click \"Hash it twice\" first.", FAIL_COLOR)
+            return
+        guess = self.salt_guess.get()
+        if not guess:
+            self._say(self.salt_verify_result, "Enter a password to try.", FAIL_COLOR)
+            return
+        results = [verify_protected(guess, record) for record in self._salt_records]
+        if all(results):
+            self._say(self.salt_verify_result, "Correct password: both records accept it.", OK_COLOR)
+        elif not any(results):
+            self._say(self.salt_verify_result, "Wrong password: both records reject it.", FAIL_COLOR)
+        else:
+            self._say(self.salt_verify_result, "Unexpected result: check the integrity package.", FAIL_COLOR)
+
+    @staticmethod
+    def _duration(seconds: float) -> str:
+        if seconds == float("inf"):
+            return "infinite"
+        for limit, unit, size in ((60, "s", 1), (3600, "min", 60), (86400, "h", 3600),
+                                  (86400 * 365, "days", 86400)):
+            if seconds < limit:
+                return f"{seconds / size:,.1f} {unit}"
+        return f"{seconds / (86400 * 365):,.1f} years"
+
+    def _salt_measure(self) -> None:
+        guesses = 16_777_216  # size of the password space of use case 3
+        self._say(self.salt_speed, "Measuring...")
+
+        def work() -> tuple[float, float]:
+            start = time.perf_counter()
+            for _ in range(1000):
+                hash_fast("password")
+            fast = (time.perf_counter() - start) / 1000
+            start = time.perf_counter()
+            for _ in range(20):
+                hash_protected("password")
+            slow = (time.perf_counter() - start) / 20
+            return fast, slow
+
+        def done(result: Any, error: str | None) -> None:
+            if error:
+                self._say(self.salt_speed, error, FAIL_COLOR)
+                return
+            fast, slow = result
+            fast_total = estimate_slowdown(guesses, 1 / fast)
+            slow_total = estimate_slowdown(guesses, 1 / slow)
+            self._say(
+                self.salt_speed,
+                f"hash_fast (SHA-256): {fast * 1e6:,.1f} microseconds per guess\n"
+                f"   -> all {guesses:,} passwords in about {self._duration(fast_total)}\n"
+                f"hash_protected (PBKDF2, {ITERATIONS:,} iterations + salt): {slow * 1e3:,.1f} ms per guess\n"
+                f"   -> all {guesses:,} passwords in about {self._duration(slow_total)}\n"
+                f"The protected hash is about {slow / fast:,.0f} times slower for an attacker.",
+                INFO_COLOR,
+            )
+
+        self._background(work, done)
+
+    def _salt_clear(self) -> None:
+        self.salt_entry.delete(0, "end")
+        self.salt_guess.delete(0, "end")
+        for var in self.salt_vars.values():
+            var.set("")
+        self._salt_records = []
+        self._say(self.salt_summary, "Enter a password and click \"Hash it twice\".")
+        self._say(self.salt_verify_result, "")
+        self._say(self.salt_speed, "")
+
     # ------------------------------------------------------------ tab: tamper demo
     #
     # Shows that encryption alone does not detect a modification: a changed
-    # ciphertext still decrypts, with no warning, while a digest or an HMAC
-    # computed by A on the ciphertext exposes the change.
+    # ciphertext still decrypts, with no warning. Then two attackers:
+    #   - a clumsy one changes the ciphertext only: the digest and the HMAC both detect it;
+    #   - a clever one also recomputes the SHA-256 digest: the digest no longer detects
+    #     anything, but the HMAC still does, because the attacker does not know the key.
     # The Encryption and Decryption pages are only used through the public API of
     # the main window (shared["pending_ciphertext"], send_ciphertext_to_decryption,
     # show_page); they are not modified.
@@ -513,7 +586,7 @@ class IntegrityPage(BasePage):
             left,
             0,
             "1. Encryption page: type a message and a key, click Encrypt, then \"Send to B\".\n"
-            "2. Come back here and click \"Load from Encryption\".",
+            "2. Come back here, type the shared key (for the HMAC) and click \"Load from Encryption\".",
         )
         self._buttons(left, 1, ("Load from Encryption", self._tamper_load))
         self.tamper_status = self._status(left, 10, "")
@@ -530,31 +603,41 @@ class IntegrityPage(BasePage):
         self.tamper_tag = tk.StringVar()
         self._readonly(left, 9, self.tamper_tag)
 
-        # Right: what B received
+        # Right: what B received (everything here can be edited, like on a real network)
         self._label(right, 0, "Ciphertext received by B (editable):")
         self.tamper_text_b = self._text_box(right, 1)
-        self._buttons(
-            right,
-            2,
-            ("Change one letter", self._tamper_change),
-            ("Send to Decryption page", self._tamper_send),
-            ("Open Decryption page", self._tamper_open),
+        self._label(right, 2, "SHA-256 digest received by B (an attacker can replace it):")
+        self.tamper_digest_b = tk.StringVar()
+        ttk.Entry(right, textvariable=self.tamper_digest_b).grid(
+            row=3, column=0, sticky="ew", pady=(0, 8)
         )
-        self._label(right, 3, "3. Decrypt it on the Decryption page: the message decrypts with no warning.")
-        self._label(right, 4, "4. Back here, check the protection:")
-        self._buttons(right, 5, ("Check digest / HMAC", self._tamper_check))
-        self._label(right, 6, "Digest check:")
+        self._label(right, 4, "HMAC tag received by B:")
+        self.tamper_tag_b = tk.StringVar()
+        ttk.Entry(right, textvariable=self.tamper_tag_b).grid(
+            row=5, column=0, sticky="ew", pady=(0, 8)
+        )
+        self._buttons(right, 6, ("Attacker: change + recompute SHA-256", self._tamper_attack))
+        self._buttons(right, 7, ("Send to Decryption page", self._tamper_send))
+        self._label(
+            right, 8,
+            "3. Open the Decryption page and decrypt: the message decrypts with no warning.",
+        )
+        self._label(right, 9, "4. Back here, check the protection:")
+        self._buttons(
+            right, 10, ("Check digest / HMAC", self._tamper_check), ("Clear all", self._tamper_clear)
+        )
+        self._label(right, 11, "Digest check:")
         self.tamper_digest_result = ttk.Label(
             right, text="-", font=("TkDefaultFont", 10, "bold"), wraplength=480, justify="left",
             foreground=INFO_COLOR,
         )
-        self.tamper_digest_result.grid(row=7, column=0, sticky="w", pady=(0, 8))
-        self._label(right, 8, "HMAC check:")
+        self.tamper_digest_result.grid(row=12, column=0, sticky="w", pady=(0, 8))
+        self._label(right, 13, "HMAC check:")
         self.tamper_hmac_result = ttk.Label(
             right, text="-", font=("TkDefaultFont", 10, "bold"), wraplength=480, justify="left",
             foreground=INFO_COLOR,
         )
-        self.tamper_hmac_result.grid(row=9, column=0, sticky="w")
+        self.tamper_hmac_result.grid(row=14, column=0, sticky="w")
 
     def _main_window(self) -> Any:
         return self.winfo_toplevel()
@@ -590,7 +673,10 @@ class IntegrityPage(BasePage):
         else:
             self.tamper_tag.set("")
             note = "Ciphertext loaded: digest computed. Type a key and reload to add an HMAC."
+        # What travels on the network: B receives the ciphertext, the digest and the tag.
         self._set_text(self.tamper_text_b, self._tamper_original)
+        self.tamper_digest_b.set(self.tamper_digest.get())
+        self.tamper_tag_b.set(self.tamper_tag.get())
         self._say(self.tamper_digest_result, "-")
         self._say(self.tamper_hmac_result, "-")
         self._say(self.tamper_status, note, OK_COLOR)
@@ -611,11 +697,12 @@ class IntegrityPage(BasePage):
                 return index
         return start
 
-    def _tamper_change(self) -> None:
+    def _modify_ciphertext(self) -> str | None:
+        """Change one letter of B's ciphertext and return a short description."""
         ciphertext = self._get_text(self.tamper_text_b)
         if not ciphertext:
             self._say(self.tamper_status, "Load a ciphertext first.", FAIL_COLOR)
-            return
+            return None
         index = self._letter_to_change(ciphertext)
         char = ciphertext[index]
         if char.isascii() and char.isalpha():
@@ -626,9 +713,19 @@ class IntegrityPage(BasePage):
         self._set_text(
             self.tamper_text_b, ciphertext[:index] + replacement + ciphertext[index + 1:]
         )
+        return f"Letter {index + 1} changed ({char} → {replacement})."
+
+    def _tamper_attack(self) -> None:
+        description = self._modify_ciphertext()
+        if not description:
+            return
+        # The attacker knows SHA-256, so he can recompute the digest. He does not know
+        # the key, so he cannot recompute the HMAC tag: it stays the one computed by A.
+        self.tamper_digest_b.set(hash_data(self._get_text(self.tamper_text_b)))
         self._say(
             self.tamper_status,
-            f"Letter {index + 1} changed ({char} → {replacement}). Send it to the Decryption page.",
+            f"{description} The attacker recomputed the SHA-256 digest, "
+            "but he cannot recompute the HMAC without the key.",
             INFO_COLOR,
         )
 
@@ -644,34 +741,35 @@ class IntegrityPage(BasePage):
         send(ciphertext, self._tamper_padding)
         self._say(
             self.tamper_status,
-            "Ciphertext sent to the Decryption page. Open it, type the key and decrypt.",
+            "Ciphertext sent to the Decryption page. Open that page, type the key and decrypt.",
             OK_COLOR,
         )
 
-    def _tamper_open(self) -> None:
-        show = getattr(self._main_window(), "show_page", None)
-        if show is None:
-            self._say(self.tamper_status, "Not available outside the full application.", FAIL_COLOR)
-            return
-        show("Decryption")
-
     def _tamper_check(self) -> None:
-        if not self.tamper_digest.get():
+        if not self._tamper_original:
             self._say(self.tamper_status, "Load the ciphertext sent by A first.", FAIL_COLOR)
             return
         received = self._get_text(self.tamper_text_b)
+        changed = received != self._tamper_original
 
         try:
-            digest_ok = verify_digest(received, self.tamper_digest.get())
+            digest_ok = verify_digest(received, self.tamper_digest_b.get().strip())
         except ValueError as exc:
             self._say(self.tamper_digest_result, str(exc), FAIL_COLOR)
         else:
-            if digest_ok:
+            if digest_ok and not changed:
                 self._say(self.tamper_digest_result, "Digest matches: the ciphertext is unchanged.", OK_COLOR)
+            elif digest_ok:
+                self._say(
+                    self.tamper_digest_result,
+                    "Digest matches, but the ciphertext WAS changed: the attacker recomputed "
+                    "the digest. The change is NOT detected.",
+                    WARN_COLOR,
+                )
             else:
                 self._say(self.tamper_digest_result, "Digest does NOT match: the ciphertext was modified.", FAIL_COLOR)
 
-        tag = self.tamper_tag.get()
+        tag = self.tamper_tag_b.get().strip()
         if not tag:
             self._say(self.tamper_hmac_result, "No HMAC key was used.", INFO_COLOR)
             return
@@ -683,4 +781,20 @@ class IntegrityPage(BasePage):
         if hmac_ok:
             self._say(self.tamper_hmac_result, "HMAC valid: the ciphertext is unchanged.", OK_COLOR)
         else:
-            self._say(self.tamper_hmac_result, "HMAC INVALID: the ciphertext was modified.", FAIL_COLOR)
+            self._say(
+                self.tamper_hmac_result,
+                "HMAC INVALID: the ciphertext was modified (the attacker does not know the key).",
+                FAIL_COLOR,
+            )
+
+    def _tamper_clear(self) -> None:
+        self._tamper_original = ""
+        self._tamper_padding = ""
+        self._set_readonly_text(self.tamper_text_a, "")
+        self._set_text(self.tamper_text_b, "")
+        for var in (self.tamper_digest, self.tamper_tag, self.tamper_digest_b, self.tamper_tag_b):
+            var.set("")
+        self.tamper_key.delete(0, "end")
+        self._say(self.tamper_digest_result, "-")
+        self._say(self.tamper_hmac_result, "-")
+        self._say(self.tamper_status, "")
