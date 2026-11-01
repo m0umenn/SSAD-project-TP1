@@ -128,3 +128,74 @@ This package is self-contained: it uses **Python standard library only** (`hashl
   from integrity.hashing import estimate_slowdown
   est_seconds = estimate_slowdown(1_000_000, rate=50_000)
   ```
+
+---
+
+## Message, file and HMAC helpers (`integrity.integrity`)
+
+These functions are exported by the package: `from integrity import hash_data, ...`.
+All of them raise `ValueError` on invalid input (they never return `None`).
+A digest or tag is always **64 lowercase hexadecimal characters**; uppercase hex
+is accepted when *verifying*.
+
+### 8. `hash_data(data: str) -> str`
+- **Output**: SHA-256 digest of the text (UTF-8).
+- **Exceptions**: `ValueError` if `data` is not a `str`.
+- **Example**:
+  ```python
+  hash_data("abc")  # "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+  ```
+
+### 9. `verify_data(data: str, digest: str) -> bool`
+- **Output**: `True` if the text still matches the digest (message intact), `False` if it was modified.
+- **Exceptions**: `ValueError` if `data` is not a `str` or `digest` is not 64 hex characters.
+- **Description**: constant-time comparison (`compare_hashes`).
+
+### 10. `hash_file(path, chunk_size: int = 65536) -> str`
+- **Inputs**: `path` (`str` or `pathlib.Path`), `chunk_size` (positive `int`, bytes read at a time).
+- **Output**: SHA-256 digest of the file. The file is read in chunks, so large files are fine.
+- **Exceptions**: `ValueError` if `path` is not a path, `chunk_size` is invalid, or the file cannot be read (missing, a folder, no permission).
+- **Example**:
+  ```python
+  from pathlib import Path
+  hash_file(Path("report.pdf"))
+  ```
+
+### 11. `verify_digest(data_or_path, expected_hex: str, is_path: bool | None = None) -> bool`
+- **Inputs**:
+  - `data_or_path`: a `pathlib.Path` (file), a `str` (text) or `bytes`.
+  - `expected_hex`: the expected SHA-256 digest (64 hex characters).
+  - `is_path`: set to `True` to treat a `str` as a **file path** (for example a path chosen in a file dialog). By default a `str` is text, so a message is never mistaken for a file name.
+- **Output**: `True` if the digest matches, `False` otherwise (constant-time comparison).
+- **Exceptions**: `ValueError` for a malformed digest, an unsupported input type, or an unreadable file.
+- **Examples**:
+  ```python
+  verify_digest("abc", digest)                      # text
+  verify_digest(b"abc", digest)                     # bytes
+  verify_digest(Path("report.pdf"), digest)         # file
+  verify_digest("C:/docs/report.pdf", digest, is_path=True)  # file path given as str
+  ```
+
+### 12. `hmac_sha256(key: str | bytes, message: str | bytes) -> str`
+- **Output**: HMAC-SHA-256 tag (64 hex characters). `str` inputs are encoded as UTF-8.
+- **Exceptions**: `ValueError` if `key` or `message` is not `str`/`bytes`, or if `key` is empty.
+- **Description**: authenticity. Only someone who knows the shared key can produce a valid tag, so an attacker who edits the message cannot fix the tag (unlike a plain SHA-256 digest, which anyone can recompute).
+- **Example**:
+  ```python
+  hmac_sha256("Jefe", "what do ya want for nothing?")
+  # "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"  (RFC 4231)
+  ```
+
+### 13. `verify_hmac(key: str | bytes, message: str | bytes, tag: str) -> bool`
+- **Output**: `True` if the tag is valid for this key and message; `False` if the message was modified or the key is wrong.
+- **Exceptions**: `ValueError` if `tag` is not 64 hex characters or `key`/`message` is invalid.
+- **Description**: constant-time comparison (`compare_hashes`).
+
+### Which function for which job (GUI)
+| Job | Function |
+| --- | --- |
+| Hash a text | `hash_data(text)` |
+| Hash a file | `hash_file(path)` |
+| Check a text / file against a digest | `verify_digest(text_or_path, digest)` (or `verify_data` for text only) |
+| Compute an HMAC tag | `hmac_sha256(key, message)` |
+| Check an HMAC tag | `verify_hmac(key, message, tag)` |

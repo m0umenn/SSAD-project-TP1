@@ -13,6 +13,14 @@ from integrity.hashing import (
     parse_record,
     verify_protected,
 )
+from integrity.integrity import (
+    hash_data,
+    hash_file,
+    hmac_sha256,
+    verify_data,
+    verify_digest,
+    verify_hmac,
+)
 
 __all__ = [
     "ITERATIONS",
@@ -20,8 +28,14 @@ __all__ = [
     "compare_hashes",
     "estimate_slowdown",
     "generate_salt",
+    "hash_data",
     "hash_fast",
+    "hash_file",
     "hash_protected",
+    "hmac_sha256",
     "parse_record",
+    "verify_data",
+    "verify_digest",
+    "verify_hmac",
     "verify_protected",
 ]
