@@ -1,10 +1,10 @@
 """Authenticity and integrity page (Part 4).
 
 Tabs:
-  - Hash & verify : SHA-256 of a text or a file, and check against a digest.
+  - Hash & verify : A hashes a text or a file and sends it to B, B checks it against the digest.
   - HMAC          : authenticity with a shared secret key.
-  - Send A -> B   : A sends a message with its digest, B verifies it.
   - Salt demo     : same password + two random salts = two different stored values.
+  - Tamper demo   : a modified ciphertext still decrypts; the digest / HMAC detects it.
 
 Everything here relies on the integrity package (standard library only).
 """
@@ -61,7 +61,6 @@ class IntegrityPage(BasePage):
 
         self._build_hash_tab()
         self._build_hmac_tab()
-        self._build_send_tab()
         self._build_salt_tab()
         self._build_tamper_tab()
 
@@ -196,7 +195,12 @@ class IntegrityPage(BasePage):
 
     def _build_hash_tab(self) -> None:
         tab = self._new_tab("Hash & verify")
-        left, right = self._make_sides(tab, "Hash a text or a file", "Verify against a digest")
+        left, right = self._make_sides(
+            tab, "Entity A (sender): hash a text or a file", "Entity B (receiver): verify against a digest"
+        )
+
+        self._hashed_kind: str | None = None  # "text" or "file": what A last hashed
+        self._hashed_value = ""
 
         # Left: hash
         self.hash_text = self._text_box_with_label(left, 0, "Text:")
@@ -209,10 +213,10 @@ class IntegrityPage(BasePage):
         self.hash_digest = tk.StringVar()
         self._readonly(left, 7, self.hash_digest)
         self.hash_status = self._status(left, 9, "Enter a text or choose a file.")
-        self._buttons(left, 8, ("Use in Verify →", self._digest_to_verify))
+        self._buttons(left, 8, ("Send to B →", self._send_to_b))
 
         # Right: verify
-        self._label(right, 0, "Content to check:")
+        self._label(right, 0, "Content received (editable):")
         self.verify_mode = tk.StringVar(value="text")
         modes = ttk.Frame(right)
         modes.grid(row=1, column=0, sticky="w", pady=(0, 4))
@@ -251,6 +255,7 @@ class IntegrityPage(BasePage):
             self._say(self.hash_status, "Enter a text first.", FAIL_COLOR)
             return
         self.hash_digest.set(hash_data(text))
+        self._hashed_kind, self._hashed_value = "text", text
         self._say(self.hash_status, "Text hashed.", OK_COLOR)
 
     def _hash_file_clicked(self) -> None:
@@ -266,17 +271,26 @@ class IntegrityPage(BasePage):
                 self._say(self.hash_status, error, FAIL_COLOR)
             else:
                 self.hash_digest.set(result)
+                self._hashed_kind, self._hashed_value = "file", path
                 self._say(self.hash_status, "File hashed.", OK_COLOR)
 
         self._background(lambda: hash_file(Path(path)), done)
 
-    def _digest_to_verify(self) -> None:
+    def _send_to_b(self) -> None:
+        """Copy what A hashed (text or file) and its digest to B's side."""
         digest = self.hash_digest.get()
-        if not digest:
+        if not digest or self._hashed_kind is None:
             self._say(self.hash_status, "Compute a digest first.", FAIL_COLOR)
             return
+        if self._hashed_kind == "text":
+            self.verify_mode.set("text")
+            self._set_text(self.verify_text, self._hashed_value)
+        else:
+            self.verify_mode.set("file")
+            self.verify_path.set(self._hashed_value)
         self.verify_digest_var.set(digest)
-        self._say(self.hash_status, "Digest copied to the Verify side.", OK_COLOR)
+        self._say(self.verify_result, "Content and digest received. Click \"Verify\".")
+        self._say(self.hash_status, "Content and digest sent to B.", OK_COLOR)
 
     def _show_verify(self, ok: bool) -> None:
         if ok:
@@ -406,102 +420,6 @@ class IntegrityPage(BasePage):
             self._say(self.hmac_result, "HMAC valid: the message is unchanged and comes from a holder of the key.", OK_COLOR)
         else:
             self._say(self.hmac_result, "HMAC INVALID: the message was modified or the key is wrong.", FAIL_COLOR)
-
-    # ---------------------------------------------------------- tab: Send A -> B
-
-    def _build_send_tab(self) -> None:
-        tab = self._new_tab("Send A → B")
-        frame_a, frame_b = self._make_sides(tab, "Entity A (sender)", "Entity B (receiver)")
-
-        self.message_a = self._text_box_with_label(frame_a, 0, "Message:")
-        self._buttons(
-            frame_a,
-            2,
-            ("Compute digest", self._compute_digest),
-            ("Send to B", self._send_to_b),
-            ("Clear", self._clear_a),
-        )
-        self._label(frame_a, 3, "SHA-256 digest:")
-        self.digest_a = tk.StringVar()
-        self._readonly(frame_a, 4, self.digest_a)
-        self.status_a = self._status(frame_a, 5, "Enter a message, then compute its digest.")
-
-        self.message_b = self._text_box_with_label(
-            frame_b, 0, "Received message (editable, to simulate tampering):"
-        )
-        self._label(frame_b, 2, "Received digest:")
-        self.digest_b = tk.StringVar()
-        ttk.Entry(frame_b, textvariable=self.digest_b).grid(row=3, column=0, sticky="ew", pady=(0, 8))
-        self._buttons(
-            frame_b,
-            4,
-            ("Verify integrity", self._verify),
-            ("Clear", self._clear_b),
-        )
-        self._label(frame_b, 5, "Recomputed digest:")
-        self.recomputed_b = tk.StringVar()
-        self._readonly(frame_b, 6, self.recomputed_b)
-        self._label(frame_b, 7, "Verification result:")
-        self.result_b = ttk.Label(
-            frame_b,
-            text="No message received.",
-            font=("TkDefaultFont", 10, "bold"),
-            wraplength=480,
-            justify="left",
-            foreground=INFO_COLOR,
-        )
-        self.result_b.grid(row=8, column=0, sticky="w")
-
-    def _compute_digest(self) -> bool:
-        message = self._get_text(self.message_a)
-        if not message:
-            self.digest_a.set("")
-            self._say(self.status_a, "Enter a message first.", FAIL_COLOR)
-            return False
-        self.digest_a.set(hash_data(message))
-        self._say(self.status_a, "Digest computed.", OK_COLOR)
-        return True
-
-    def _send_to_b(self) -> None:
-        if not self._compute_digest():
-            return
-        self._set_text(self.message_b, self._get_text(self.message_a))
-        self.digest_b.set(self.digest_a.get())
-        self.recomputed_b.set("")
-        self._say(self.status_a, "Message and digest sent to B.", OK_COLOR)
-        self._say(self.result_b, "Message received. Click \"Verify integrity\".")
-
-    def _clear_a(self) -> None:
-        self._set_text(self.message_a, "")
-        self.digest_a.set("")
-        self._say(self.status_a, "Enter a message, then compute its digest.")
-
-    def _verify(self) -> None:
-        message = self._get_text(self.message_b)
-        digest = self.digest_b.get().strip()
-        if not message and not digest:
-            self._say(self.result_b, "No message received.")
-            return
-        self.recomputed_b.set(hash_data(message))
-        try:
-            intact = verify_digest(message, digest)
-        except ValueError:
-            self._say(
-                self.result_b,
-                "Invalid digest: it must be 64 hexadecimal characters. The message cannot be verified.",
-                FAIL_COLOR,
-            )
-            return
-        if intact:
-            self._say(self.result_b, "Integrity verified: the message is unchanged.", OK_COLOR)
-        else:
-            self._say(self.result_b, "Integrity check FAILED: the message or its digest was modified.", FAIL_COLOR)
-
-    def _clear_b(self) -> None:
-        self._set_text(self.message_b, "")
-        self.digest_b.set("")
-        self.recomputed_b.set("")
-        self._say(self.result_b, "No message received.")
 
     # ------------------------------------------------------------- tab: salt demo
 
