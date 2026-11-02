@@ -14,6 +14,7 @@ from typing import Any
 from crypto import caesar, hill, playfair
 from crypto.recipient_check import check_recipient_algorithm
 from gui.pages.base_page import BasePage
+from gui.scrollable import ScrollableFrame
 
 
 class DecryptionContent(ttk.Frame):
@@ -447,8 +448,11 @@ class DecryptionToplevel(tk.Toplevel):
         self.geometry("680x560")
         self.minsize(580, 480)
 
-        self.content = DecryptionContent(self, is_toplevel=True)
-        self.content.pack(fill="both", expand=True, padx=12, pady=10)
+        self.scroll_area = ScrollableFrame(self)
+        self.scroll_area.pack(fill="both", expand=True, padx=12, pady=10)
+        self.content = DecryptionContent(self.scroll_area.inner, is_toplevel=True)
+        self.content.grid(row=0, column=0, sticky="nsew")
+        self.scroll_area.inner.rowconfigure(0, weight=1)
 
     def set_incoming_ciphertext(
         self, ciphertext: str, padding: str = "", algorithm: str = ""

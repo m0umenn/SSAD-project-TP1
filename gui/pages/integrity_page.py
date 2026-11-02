@@ -4,7 +4,7 @@ Tabs:
   - Hash & verify : A hashes a text or a file (SHA-256, or HMAC-SHA-256 if a secret key
                     is given) and sends it to B, who verifies it.
   - Salt demo     : same password + two random salts = two different stored values.
-  - Tamper demo   : a modified ciphertext still decrypts; the digest / HMAC detects it.
+  - Tamper demo   : check whether a digest or HMAC detects a ciphertext modification.
 
 Everything here relies on the integrity package (standard library only).
 """
@@ -107,7 +107,18 @@ class IntegrityPage(BasePage):
 
     @staticmethod
     def _text_box(parent: tk.Widget, row: int) -> tk.Text:
-        box = tk.Text(parent, height=4, wrap="word", font=MONO)
+        box = tk.Text(
+            parent,
+            height=4,
+            wrap="word",
+            font=MONO,
+            background="#f7f8fc",
+            borderwidth=1,
+            relief="solid",
+            highlightthickness=0,
+            padx=6,
+            pady=4,
+        )
         box.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         return box
 
@@ -569,9 +580,8 @@ class IntegrityPage(BasePage):
     #   - a clumsy one changes the ciphertext only: the digest and the HMAC both detect it;
     #   - a clever one also recomputes the SHA-256 digest: the digest no longer detects
     #     anything, but the HMAC still does, because the attacker does not know the key.
-    # The Encryption and Decryption pages are only used through the public API of
-    # the main window (shared["pending_ciphertext"], send_ciphertext_to_decryption,
-    # show_page); they are not modified.
+    # The Encryption page exposes the sent ciphertext through the main window's
+    # shared["pending_ciphertext"] state; it is not modified.
 
     def _build_tamper_tab(self) -> None:
         tab = self._new_tab("Tamper demo")
@@ -579,7 +589,6 @@ class IntegrityPage(BasePage):
             tab, "Entity A (sender): ciphertext + protection", "Entity B (receiver): in transit"
         )
         self._tamper_original = ""
-        self._tamper_padding = ""
 
         # Left: what A sent
         self._status(
@@ -591,7 +600,19 @@ class IntegrityPage(BasePage):
         self._buttons(left, 1, ("Load from Encryption", self._tamper_load))
         self.tamper_status = self._status(left, 10, "")
         self._label(left, 2, "Ciphertext sent by A:")
-        self.tamper_text_a = tk.Text(left, height=4, wrap="word", font=MONO, state="disabled")
+        self.tamper_text_a = tk.Text(
+            left,
+            height=4,
+            wrap="word",
+            font=MONO,
+            state="disabled",
+            background="#f7f8fc",
+            borderwidth=1,
+            relief="solid",
+            highlightthickness=0,
+            padx=6,
+            pady=4,
+        )
         self.tamper_text_a.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         self._label(left, 4, "SHA-256 digest computed by A:")
         self.tamper_digest = tk.StringVar()
@@ -617,27 +638,24 @@ class IntegrityPage(BasePage):
             row=5, column=0, sticky="ew", pady=(0, 8)
         )
         self._buttons(right, 6, ("Attacker: change + recompute SHA-256", self._tamper_attack))
-        self._buttons(right, 7, ("Send to Decryption page", self._tamper_send))
         self._label(
-            right, 8,
-            "3. Open the Decryption page and decrypt: the message decrypts with no warning.",
+            right, 8, "3. Check whether the digest / HMAC detects the modification:"
         )
-        self._label(right, 9, "4. Back here, check the protection:")
         self._buttons(
-            right, 10, ("Check digest / HMAC", self._tamper_check), ("Clear all", self._tamper_clear)
+            right, 9, ("Check digest / HMAC", self._tamper_check), ("Clear all", self._tamper_clear)
         )
-        self._label(right, 11, "Digest check:")
+        self._label(right, 10, "Digest check:")
         self.tamper_digest_result = ttk.Label(
             right, text="-", font=("TkDefaultFont", 10, "bold"), wraplength=480, justify="left",
             foreground=INFO_COLOR,
         )
-        self.tamper_digest_result.grid(row=12, column=0, sticky="w", pady=(0, 8))
-        self._label(right, 13, "HMAC check:")
+        self.tamper_digest_result.grid(row=11, column=0, sticky="w", pady=(0, 8))
+        self._label(right, 12, "HMAC check:")
         self.tamper_hmac_result = ttk.Label(
             right, text="-", font=("TkDefaultFont", 10, "bold"), wraplength=480, justify="left",
             foreground=INFO_COLOR,
         )
-        self.tamper_hmac_result.grid(row=14, column=0, sticky="w")
+        self.tamper_hmac_result.grid(row=13, column=0, sticky="w")
 
     def _main_window(self) -> Any:
         return self.winfo_toplevel()
@@ -662,7 +680,6 @@ class IntegrityPage(BasePage):
             )
             return
         self._tamper_original = str(ciphertext)
-        self._tamper_padding = str(shared.get("pending_padding") or "")
 
         self._set_readonly_text(self.tamper_text_a, self._tamper_original)
         self.tamper_digest.set(hash_data(self._tamper_original))
@@ -729,22 +746,6 @@ class IntegrityPage(BasePage):
             INFO_COLOR,
         )
 
-    def _tamper_send(self) -> None:
-        ciphertext = self._get_text(self.tamper_text_b)
-        if not ciphertext:
-            self._say(self.tamper_status, "Nothing to send: load a ciphertext first.", FAIL_COLOR)
-            return
-        send = getattr(self._main_window(), "send_ciphertext_to_decryption", None)
-        if send is None:
-            self._say(self.tamper_status, "Not available outside the full application.", FAIL_COLOR)
-            return
-        send(ciphertext, self._tamper_padding)
-        self._say(
-            self.tamper_status,
-            "Ciphertext sent to the Decryption page. Open that page, type the key and decrypt.",
-            OK_COLOR,
-        )
-
     def _tamper_check(self) -> None:
         if not self._tamper_original:
             self._say(self.tamper_status, "Load the ciphertext sent by A first.", FAIL_COLOR)
@@ -789,7 +790,6 @@ class IntegrityPage(BasePage):
 
     def _tamper_clear(self) -> None:
         self._tamper_original = ""
-        self._tamper_padding = ""
         self._set_readonly_text(self.tamper_text_a, "")
         self._set_text(self.tamper_text_b, "")
         for var in (self.tamper_digest, self.tamper_tag, self.tamper_digest_b, self.tamper_tag_b):

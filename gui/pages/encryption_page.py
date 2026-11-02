@@ -136,7 +136,10 @@ class EncryptionPage(BasePage):
         ).grid(row=1, column=0, sticky="w", pady=(0, 6))
 
         ttk.Label(frame, text="Plaintext Message:").grid(row=2, column=0, sticky="w", pady=(4, 2))
-        self.caesar_message_text = tk.Text(frame, height=4, wrap="word")
+        self.caesar_message_text = tk.Text(
+            frame, height=4, wrap="word", background="#f7f8fc", borderwidth=1,
+            relief="solid", highlightthickness=0, padx=6, pady=4,
+        )
         self.caesar_message_text.grid(row=3, column=0, sticky="ew", pady=(0, 8))
 
 
@@ -229,7 +232,10 @@ class EncryptionPage(BasePage):
         self._update_playfair_matrix()
 
         ttk.Label(frame, text="Plaintext Message:").grid(row=3, column=0, sticky="w", pady=(4, 2))
-        self.playfair_message_text = tk.Text(frame, height=4, wrap="word")
+        self.playfair_message_text = tk.Text(
+            frame, height=4, wrap="word", background="#f7f8fc", borderwidth=1,
+            relief="solid", highlightthickness=0, padx=6, pady=4,
+        )
         self.playfair_message_text.grid(row=4, column=0, sticky="ew", pady=(0, 8))
 
 
@@ -323,7 +329,10 @@ class EncryptionPage(BasePage):
         self._rebuild_hill_key_grid()
 
         ttk.Label(frame, text="Plaintext Message:").grid(row=2, column=0, sticky="w", pady=(4, 2))
-        self.hill_message_text = tk.Text(frame, height=4, wrap="word")
+        self.hill_message_text = tk.Text(
+            frame, height=4, wrap="word", background="#f7f8fc", borderwidth=1,
+            relief="solid", highlightthickness=0, padx=6, pady=4,
+        )
         self.hill_message_text.grid(row=3, column=0, sticky="ew", pady=(0, 8))
 
 

@@ -10,12 +10,12 @@ class BasePage(ttk.Frame):
     """Simple page container with a consistent title area."""
 
     def __init__(self, parent: tk.Widget, title: str, placeholder_text: str) -> None:
-        super().__init__(parent, style="Content.TFrame")
+        super().__init__(parent, style="Page.TFrame", padding=(14, 12))
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
         title_label = ttk.Label(self, text=title, style="PageTitle.TLabel")
-        title_label.grid(row=0, column=0, sticky="w", pady=(0, 14))
+        title_label.grid(row=0, column=0, sticky="w", pady=(0, 10))
 
         body = ttk.Label(
             self,

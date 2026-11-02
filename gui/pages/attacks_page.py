@@ -96,68 +96,13 @@ class AttacksPage(BasePage):
     # --- scrolling ----------------------------------------------------------
 
     def _build_scrollable_area(self) -> ttk.Frame:
-        """Wrap the page content in a vertically scrollable canvas.
-
-        Returns the inner frame that the rest of the page should build into
-        (it behaves like a normal ttk.Frame, just scrollable when content
-        overflows the visible height).
-        """
-        self.columnconfigure(0, weight=1)
+        """Create the content frame; scrolling is handled by the shared page shell."""
         self.rowconfigure(1, weight=1)
-
-        container = ttk.Frame(self)
+        container = ttk.Frame(self, padding=(10, 6))
         container.grid(row=1, column=0, sticky="nsew")
         container.columnconfigure(0, weight=1)
-        container.rowconfigure(0, weight=1)
-
-        canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
-        canvas.grid(row=0, column=0, sticky="nsew")
-
-        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        inner = ttk.Frame(canvas, padding=(10, 6))
-        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-
-        def _on_inner_configure(_event: Any = None) -> None:
-            canvas.configure(scrollregion=canvas.bbox("all"))
-
-        def _on_canvas_configure(event: Any) -> None:
-            # Make the inner frame match the canvas width so it doesn't
-            # stay fixed-width and force horizontal scrolling too.
-            canvas.itemconfigure(inner_id, width=event.width)
-
-        inner.bind("<Configure>", _on_inner_configure)
-        canvas.bind("<Configure>", _on_canvas_configure)
-
-        def _on_mousewheel(event: Any) -> None:
-            # Windows/macOS send delta in multiples of 120; Linux sends
-            # Button-4/Button-5 events instead (handled separately below).
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        def _on_mousewheel_linux_up(_event: Any) -> None:
-            canvas.yview_scroll(-1, "units")
-
-        def _on_mousewheel_linux_down(_event: Any) -> None:
-            canvas.yview_scroll(1, "units")
-
-        def _bind_wheel(_event: Any = None) -> None:
-            canvas.bind_all("<MouseWheel>", _on_mousewheel)
-            canvas.bind_all("<Button-4>", _on_mousewheel_linux_up)
-            canvas.bind_all("<Button-5>", _on_mousewheel_linux_down)
-
-        def _unbind_wheel(_event: Any = None) -> None:
-            canvas.unbind_all("<MouseWheel>")
-            canvas.unbind_all("<Button-4>")
-            canvas.unbind_all("<Button-5>")
-
-        # Only scroll with the wheel while the pointer is over this page,
-        # so it doesn't steal scrolling from other pages/widgets.
-        canvas.bind("<Enter>", _bind_wheel)
-        canvas.bind("<Leave>", _unbind_wheel)
-
-        return inner
+        container.rowconfigure(2, weight=1)
+        return container
 
     # --- shared state -----------------------------------------------------
 
